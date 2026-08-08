@@ -9,6 +9,7 @@ import {
 import { StudySnapshot } from "@/features/assistant/components/StudySnapshot";
 import { useAssistantChat } from "@/features/assistant/useAssistantChat";
 import { greeting } from "@/shared/utils/format";
+import { playUiSound } from "@/shared/utils/sound";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -83,13 +84,19 @@ function AssistantPage() {
 
           {hasMessages ? (
             <div className="flex flex-col gap-5 pb-4">
-              {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
+              {messages.map((message, index) => (
+                <div
+                  key={message.id}
+                  className="animate-fade-in-up"
+                  style={{ animationDelay: `${Math.min(index, 4) * 40}ms` }}
+                >
+                  <MessageBubble message={message} />
+                </div>
               ))}
               <div ref={bottomRef} />
             </div>
           ) : (
-            <div className="pt-6">
+            <div className="animate-fade-in-up pt-6">
               <p className="text-sm text-muted-foreground">{hello}</p>
               <h1 className="text-balance-tight mt-1 text-[1.75rem] font-semibold">
                 What do you want to do?
@@ -101,17 +108,17 @@ function AssistantPage() {
           )}
 
           {error ? (
-            <p role="status" className="mt-4 text-sm text-destructive">
+            <p role="status" className="animate-fade-in mt-4 text-sm text-destructive">
               {error}
             </p>
           ) : null}
           {status !== "idle" ? (
-            <p role="status" className="mt-4 text-sm text-muted-foreground">
+            <p role="status" className="animate-fade-in mt-4 text-sm text-muted-foreground">
               {activity ?? "Thinking…"}
             </p>
           ) : null}
           {pendingAction ? (
-            <div className="surface-card mt-4 flex flex-wrap items-center gap-2 p-3 text-sm">
+            <div className="glass-panel animate-fade-in-up mt-4 flex flex-wrap items-center gap-2 p-3 text-sm">
               <span className="flex-1">
                 I can{" "}
                 {pendingAction.calls
@@ -121,15 +128,21 @@ function AssistantPage() {
               </span>
               <button
                 type="button"
-                className="tap-target rounded-xl bg-primary px-3 py-2 text-primary-foreground"
-                onClick={() => void confirmPending()}
+                className="tap-target rounded-xl bg-primary px-3 py-2 text-primary-foreground transition-all duration-200 hover:bg-primary/90 active:scale-[0.98]"
+                onClick={() => {
+                  playUiSound("success");
+                  void confirmPending();
+                }}
               >
                 Confirm
               </button>
               <button
                 type="button"
-                className="tap-target rounded-xl border px-3 py-2"
-                onClick={() => void rejectPending()}
+                className="tap-target glass-sm rounded-xl border border-border/70 px-3 py-2 transition-all duration-200 hover:bg-accent/60 active:scale-[0.98]"
+                onClick={() => {
+                  playUiSound("click");
+                  void rejectPending();
+                }}
               >
                 Cancel
               </button>
@@ -138,7 +151,7 @@ function AssistantPage() {
         </div>
       </div>
 
-      <div className="sticky bottom-0 bg-gradient-to-t from-background via-background to-transparent px-5 pb-safe pt-3">
+      <div className="glass-sm sticky bottom-0 border-t border-border/50 bg-gradient-to-t from-background via-background/95 to-transparent px-5 pb-safe pt-3">
         <div className="mx-auto w-full max-w-2xl pb-3">
           <ChatComposer status={status} onSend={send} onStop={stop} />
           <p className="mt-2 text-center text-[0.7rem] text-muted-foreground">
