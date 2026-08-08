@@ -1,5 +1,5 @@
-import { Archive, Star, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { Archive, Download, ExternalLink, Star, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { vaultRepository } from "@/data/repositories/vault.repository";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState, PageContainer, PageHeader } from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
 import { formatBytes, formatDate } from "@/shared/utils/format";
-import type { VaultKind } from "@/shared/types/domain";
+import type { VaultItem, VaultKind } from "@/shared/types/domain";
 
 interface VaultViewProps {
   title: string;
@@ -19,6 +19,9 @@ interface VaultViewProps {
 
 export function VaultView({ title, description, kind, favoritesOnly }: VaultViewProps) {
   const [query, setQuery] = useState("");
+  const [preview, setPreview] = useState<VaultItem | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const items = useRepoQuery(
     () =>
@@ -38,20 +41,38 @@ export function VaultView({ title, description, kind, favoritesOnly }: VaultView
     toast.success(`Saved ${fileList.length} file(s) to the vault`);
   }
 
-  async function openItem(id: string, name: string) {
-    const blob = await vaultRepository.getBlob(id);
-    if (!blob) {
-      toast.error("File data is missing for this item.");
-      return;
-    }
-    const url = URL.createObjectURL(blob);
+  useEffect(() => {
+    if (!preview) return;
+    let cancelled = false;
+    let url: string | null = null;
+    setPreviewText(null);
+    setPreviewUrl(null);
+
+    void vaultRepository.getBlob(preview.id).then(async (blob) => {
+      if (!blob) {
+        if (!cancelled) toast.error("File data is missing for this item.");
+        return;
+      }
+      url = URL.createObjectURL(blob);
+      if (!cancelled) setPreviewUrl(url);
+      if (preview.kind === "text") {
+        const text = await blob.text();
+        if (!cancelled) setPreviewText(text);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [preview]);
+
+  function downloadPreview() {
+    if (!preview || !previewUrl) return;
     const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.target = "_blank";
-    anchor.rel = "noopener";
-    anchor.download = name;
+    anchor.href = previewUrl;
+    anchor.download = preview.name;
     anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   return (
@@ -67,7 +88,10 @@ export function VaultView({ title, description, kind, favoritesOnly }: VaultView
               multiple
               className="sr-only"
               aria-label="Add files to the vault"
-              onChange={(event) => void handleFiles(event.target.files)}
+              onChange={(event) => {
+                void handleFiles(event.target.files);
+                event.currentTarget.value = "";
+              }}
             />
             <Button className="tap-target" onClick={() => inputRef.current?.click()}>
               Add files
@@ -96,11 +120,7 @@ export function VaultView({ title, description, kind, favoritesOnly }: VaultView
         <ul className="grid gap-3 sm:grid-cols-2">
           {items.map((item) => (
             <li key={item.id} className="surface-card flex flex-col gap-2 p-4">
-              <button
-                type="button"
-                onClick={() => void openItem(item.id, item.name)}
-                className="text-left"
-              >
+              <button type="button" onClick={() => setPreview(item)} className="text-left">
                 <p className="truncate font-medium">{item.name}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.kind} · {formatBytes(item.sizeBytes)} · {formatDate(item.createdAt)}
@@ -135,6 +155,69 @@ export function VaultView({ title, description, kind, favoritesOnly }: VaultView
           ))}
         </ul>
       )}
+
+      {preview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+          <div className="surface-card flex max-h-[90dvh] w-full max-w-4xl flex-col p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{preview.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {preview.kind} · {formatBytes(preview.sizeBytes)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"
+                aria-label="Close preview"
+                onClick={() => setPreview(null)}
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="mt-4 min-h-0 flex-1 overflow-auto rounded-xl bg-surface-sunken">
+              {preview.kind === "image" && previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt={preview.name}
+                  className="mx-auto max-h-[65dvh] max-w-full object-contain"
+                />
+              ) : null}
+              {preview.kind === "pdf" && previewUrl ? (
+                <iframe title={preview.name} src={previewUrl} className="h-[65dvh] w-full" />
+              ) : null}
+              {preview.kind === "text" ? (
+                <pre className="whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">
+                  {previewText ?? "Loading…"}
+                </pre>
+              ) : null}
+              {preview.kind === "other" ? (
+                <p className="p-6 text-sm text-muted-foreground">
+                  Preview is unavailable for this file type. You can open or download it instead.
+                </p>
+              ) : null}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                className="tap-target"
+                onClick={downloadPreview}
+                disabled={!previewUrl}
+              >
+                <Download className="size-4" aria-hidden="true" /> Download
+              </Button>
+              <Button
+                variant="secondary"
+                className="tap-target"
+                onClick={() => previewUrl && window.open(previewUrl, "_blank", "noopener")}
+                disabled={!previewUrl}
+              >
+                <ExternalLink className="size-4" aria-hidden="true" /> Open
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </PageContainer>
   );
 }

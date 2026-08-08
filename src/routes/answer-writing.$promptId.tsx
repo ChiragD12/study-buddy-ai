@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { countWords, writingRepository } from "@/data/repositories/writing.repository";
-import { resolveProvider } from "@/ai/providers";
+import { getGeminiKey } from "@/ai/providers/keyStore";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { NotImplementedNote, PageContainer } from "@/shared/components/Page";
@@ -17,7 +17,10 @@ export const Route = createFileRoute("/answer-writing/$promptId")({
       { title: "Writing workspace — Exam Assistant" },
       { name: "description", content: "Timed, local writing workspace with attempt history." },
       { property: "og:title", content: "Writing workspace — Exam Assistant" },
-      { property: "og:description", content: "Timed, local writing workspace with attempt history." },
+      {
+        property: "og:description",
+        content: "Timed, local writing workspace with attempt history.",
+      },
     ],
   }),
   component: WritingWorkspace,
@@ -90,10 +93,16 @@ function WritingWorkspace() {
           onClick={() => setRunning((value) => !value)}
           aria-pressed={running}
         >
-          {running ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
+          {running ? (
+            <Pause className="size-4" aria-hidden="true" />
+          ) : (
+            <Play className="size-4" aria-hidden="true" />
+          )}
           {formatDuration(seconds)}
         </Button>
-        <p className={`text-sm ${overLimit ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+        <p
+          className={`text-sm ${overLimit ? "font-medium text-destructive" : "text-muted-foreground"}`}
+        >
           {words} words{prompt.wordLimit ? ` / ${prompt.wordLimit}` : ""}
           {overLimit ? " · over limit" : ""}
         </p>
@@ -126,7 +135,7 @@ function WritingWorkspace() {
       </div>
 
       <NotImplementedNote>
-        {resolveProvider()
+        {getGeminiKey()
           ? "AI evaluation is optional and not implemented yet — the attempt model already stores an evaluation slot."
           : "AI evaluation will be optional. Add a Gemini key in Settings when it ships."}
       </NotImplementedNote>

@@ -31,7 +31,10 @@ export function StudySnapshot() {
 
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = (exams ?? []).filter((exam) => exam.examDate && exam.examDate >= today);
-  const nearest = upcoming[0];
+  const nearest =
+    (settings.activeExamId
+      ? (exams ?? []).find((exam) => exam.id === settings.activeExamId)
+      : undefined) ?? upcoming[0];
   const todayTasks = (plan ?? []).filter((entry) => entry.date.slice(0, 10) === today);
   const done = todayTasks.filter((entry) => entry.done).length;
 
@@ -65,6 +68,7 @@ export function StudySnapshot() {
           <p className="text-lg font-semibold">{nearest.name}</p>
           <p className="text-sm text-muted-foreground">
             {formatRelativeDays(daysUntil(nearest.examDate))}
+            {nearest.examDate ? ` · ${new Date(nearest.examDate).toLocaleDateString()}` : ""}
           </p>
         </div>
       ) : (

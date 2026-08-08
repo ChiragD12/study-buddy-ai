@@ -1,4 +1,5 @@
 import { examRepository } from "@/data/repositories/exams.repository";
+import { settingsRepository } from "@/data/repositories/settings.repository";
 import type { AIMessage } from "@/ai/types";
 
 /**
@@ -19,7 +20,11 @@ export function daysUntil(date: string | null): number | null {
 }
 
 export async function buildAssistantContext(): Promise<AssistantContext> {
-  const exam = await examRepository.nearestUpcoming();
+  const settings = await settingsRepository.get();
+  const activeExam = settings.activeExamId
+    ? await examRepository.get(settings.activeExamId)
+    : undefined;
+  const exam = activeExam ?? (await examRepository.nearestUpcoming());
   return {
     today: new Date().toISOString().slice(0, 10),
     ...(exam

@@ -12,6 +12,10 @@ export const Route = createFileRoute("/vault/images")({
     ],
   }),
   component: () => (
-    <VaultView title="Images" description="Printable sheets and screenshots stored on this device." kind="image" />
+    <VaultView
+      title="Images"
+      description="Printable sheets and screenshots stored on this device."
+      kind="image"
+    />
   ),
 });

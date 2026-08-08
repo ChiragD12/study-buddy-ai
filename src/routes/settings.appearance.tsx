@@ -13,7 +13,10 @@ export const Route = createFileRoute("/settings/appearance")({
       { title: "Appearance — Exam Assistant" },
       { name: "description", content: "Theme, motion and launch behaviour for your study app." },
       { property: "og:title", content: "Appearance — Exam Assistant" },
-      { property: "og:description", content: "Theme, motion and launch behaviour for your study app." },
+      {
+        property: "og:description",
+        content: "Theme, motion and launch behaviour for your study app.",
+      },
     ],
   }),
   component: AppearanceSettings,
@@ -30,7 +33,10 @@ function AppearanceSettings() {
 
   return (
     <PageContainer>
-      <PageHeader title="Appearance" description="Small, calm choices — nothing that fights the system." />
+      <PageHeader
+        title="Appearance"
+        description="Small, calm choices — nothing that fights the system."
+      />
 
       <div className="surface-card space-y-3 p-5">
         <p className="text-sm font-medium">Theme</p>

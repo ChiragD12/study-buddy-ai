@@ -16,9 +16,7 @@ const OFFLINE_URL = "/offline.html";
 // self.__WB_MANIFEST
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll([OFFLINE_URL])),
-  );
+  event.waitUntil(caches.open(APP_SHELL_CACHE).then((cache) => cache.addAll([OFFLINE_URL])));
   self.skipWaiting();
 });
 

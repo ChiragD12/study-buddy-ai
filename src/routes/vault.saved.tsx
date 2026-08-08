@@ -12,6 +12,10 @@ export const Route = createFileRoute("/vault/saved")({
     ],
   }),
   component: () => (
-    <VaultView title="Saved Material" description="Everything you starred for quick access." favoritesOnly />
+    <VaultView
+      title="Saved Material"
+      description="Everything you starred for quick access."
+      favoritesOnly
+    />
   ),
 });

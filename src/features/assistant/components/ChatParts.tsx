@@ -145,7 +145,11 @@ export function ChatComposer({
           !busy && !value.trim() && "opacity-40",
         )}
       >
-        {busy ? <Square className="size-4" aria-hidden="true" /> : <ArrowUp className="size-5" aria-hidden="true" />}
+        {busy ? (
+          <Square className="size-4" aria-hidden="true" />
+        ) : (
+          <ArrowUp className="size-5" aria-hidden="true" />
+        )}
       </button>
     </form>
   );

@@ -3,6 +3,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { clearGeminiKey, getGeminiKey, maskKey, setGeminiKey } from "@/ai/providers/keyStore";
+import { GEMINI_MODELS } from "@/ai/providers/models";
+import { resolveProvider } from "@/ai/providers";
 import { settingsRepository } from "@/data/repositories/settings.repository";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,20 +16,25 @@ export const Route = createFileRoute("/settings/ai")({
   head: () => ({
     meta: [
       { title: "AI Settings — Exam Assistant" },
-      { name: "description", content: "Connect your own Gemini API key, stored only on this device." },
+      {
+        name: "description",
+        content: "Connect your own Gemini API key, stored only on this device.",
+      },
       { property: "og:title", content: "AI Settings — Exam Assistant" },
-      { property: "og:description", content: "Connect your own Gemini API key, stored only on this device." },
+      {
+        property: "og:description",
+        content: "Connect your own Gemini API key, stored only on this device.",
+      },
     ],
   }),
   component: AISettings,
 });
 
-const MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
-
 function AISettings() {
   const settings = useRepoQuery(() => settingsRepository.get());
   const [draft, setDraft] = useState("");
   const [saved, setSaved] = useState(() => getGeminiKey());
+  const [testing, setTesting] = useState(false);
 
   return (
     <PageContainer>
@@ -86,16 +93,38 @@ function AISettings() {
         <Label htmlFor="model">Model</Label>
         <select
           id="model"
-          value={settings?.geminiModel ?? MODELS[0]}
+          value={settings?.geminiModel ?? GEMINI_MODELS[0]}
           onChange={(event) => void settingsRepository.update({ geminiModel: event.target.value })}
           className="tap-target w-full rounded-xl border bg-surface px-3 text-sm"
         >
-          {MODELS.map((model) => (
+          {GEMINI_MODELS.map((model) => (
             <option key={model} value={model}>
               {model}
             </option>
           ))}
         </select>
+        <Button
+          variant="secondary"
+          className="tap-target"
+          disabled={!saved || testing}
+          onClick={async () => {
+            setTesting(true);
+            try {
+              const provider = await resolveProvider();
+              if (!provider) {
+                toast.error("Add a Gemini API key before testing the connection.");
+                return;
+              }
+              const result = await provider.testConnection();
+              if (result.ok) toast.success(result.message);
+              else toast.error(result.message);
+            } finally {
+              setTesting(false);
+            }
+          }}
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </Button>
       </div>
     </PageContainer>
   );

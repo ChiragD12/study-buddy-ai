@@ -40,7 +40,14 @@ export const examRepository: ExamRepository = {
     await getDb().exams.update(id, { ...patch, updatedAt: now() });
   },
   async remove(id) {
-    await getDb().exams.delete(id);
+    const db = getDb();
+    await db.transaction("rw", db.exams, db.settings, async () => {
+      await db.exams.delete(id);
+      const settings = await db.settings.get("app");
+      if (settings?.activeExamId === id) {
+        await db.settings.update("app", { activeExamId: null, updatedAt: now() });
+      }
+    });
   },
   async nearestUpcoming() {
     const today = new Date().toISOString().slice(0, 10);

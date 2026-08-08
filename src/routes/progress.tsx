@@ -13,7 +13,10 @@ export const Route = createFileRoute("/progress")({
       { title: "Progress — Exam Assistant" },
       { name: "description", content: "A factual view of what you have created and completed." },
       { property: "og:title", content: "Progress — Exam Assistant" },
-      { property: "og:description", content: "A factual view of what you have created and completed." },
+      {
+        property: "og:description",
+        content: "A factual view of what you have created and completed.",
+      },
     ],
   }),
   component: ProgressPage,
@@ -47,10 +50,7 @@ function ProgressPage() {
         <Stat label="Exams tracked" value={exams?.length ?? "—"} />
         <Stat label="Notes" value={notes?.length ?? "—"} />
         <Stat label="Writing prompts" value={prompts?.length ?? "—"} />
-        <Stat
-          label="Plan tasks completed"
-          value={plan ? `${doneTasks}/${plan.length}` : "—"}
-        />
+        <Stat label="Plan tasks completed" value={plan ? `${doneTasks}/${plan.length}` : "—"} />
       </div>
 
       <div className="mt-6">

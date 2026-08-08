@@ -15,9 +15,15 @@ export const Route = createFileRoute("/answer-writing/")({
   head: () => ({
     meta: [
       { title: "Answer Writing — Exam Assistant" },
-      { name: "description", content: "Practice letters, précis, essays and structured answers locally." },
+      {
+        name: "description",
+        content: "Practice letters, précis, essays and structured answers locally.",
+      },
       { property: "og:title", content: "Answer Writing — Exam Assistant" },
-      { property: "og:description", content: "Practice letters, précis, essays and structured answers locally." },
+      {
+        property: "og:description",
+        content: "Practice letters, précis, essays and structured answers locally.",
+      },
     ],
   }),
   component: AnswerWritingPage,
@@ -159,7 +165,12 @@ function AnswerWritingPage() {
             <Button type="submit" className="tap-target">
               Create
             </Button>
-            <Button type="button" variant="ghost" className="tap-target" onClick={() => setOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="tap-target"
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </Button>
           </div>

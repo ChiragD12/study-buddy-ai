@@ -24,7 +24,10 @@ export const Route = createFileRoute("/settings/notifications")({
       { title: "Notifications — Exam Assistant" },
       { name: "description", content: "Configure real Web Push for your installed study app." },
       { property: "og:title", content: "Notifications — Exam Assistant" },
-      { property: "og:description", content: "Configure real Web Push for your installed study app." },
+      {
+        property: "og:description",
+        content: "Configure real Web Push for your installed study app.",
+      },
     ],
   }),
   component: NotificationSettings,
@@ -32,7 +35,8 @@ export const Route = createFileRoute("/settings/notifications")({
 
 const STATE_COPY: Record<PushState, string> = {
   unsupported: "This browser does not support Web Push.",
-  "requires-install": "On iPhone, add this app to your Home Screen first — iOS only allows push for installed web apps.",
+  "requires-install":
+    "On iPhone, add this app to your Home Screen first — iOS only allows push for installed web apps.",
   default: "Notifications are not enabled yet.",
   granted: "Permission granted. Subscribe to start receiving push messages.",
   denied: "Permission was denied. Re-enable notifications in system settings.",

@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { DEFAULT_SETTINGS, settingsRepository } from "@/data/repositories/settings.repository";
 import { isBrowser } from "@/data/db/db";

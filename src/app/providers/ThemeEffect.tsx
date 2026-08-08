@@ -11,7 +11,8 @@ export function ThemeEffect() {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
 
     const apply = () => {
-      const dark = settings.appearance === "dark" || (settings.appearance === "system" && media.matches);
+      const dark =
+        settings.appearance === "dark" || (settings.appearance === "system" && media.matches);
       root.classList.toggle("dark", dark);
       document
         .querySelector('meta[name="theme-color"]')

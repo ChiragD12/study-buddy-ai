@@ -92,7 +92,6 @@ Dexie
 ↓
 IndexedDB
 
-
 Do not scatter Dexie/database calls throughout React components.
 
 3. PROJECT STRUCTURE
@@ -102,46 +101,45 @@ Use a feature-oriented architecture rather than putting everything into a generi
 Use a structure along these lines, adapting where necessary:
 
 src/
-  app/
-    router/
-    layout/
-    providers/
+app/
+router/
+layout/
+providers/
 
-  features/
-    assistant/
-    exams/
-    notes/
-    current-affairs/
-    answer-writing/
-    vault/
-    documents/
-    progress/
-    notifications/
-    settings/
+features/
+assistant/
+exams/
+notes/
+current-affairs/
+answer-writing/
+vault/
+documents/
+progress/
+notifications/
+settings/
 
-  data/
-    db/
-    repositories/
-    migrations/
-    schemas/
+data/
+db/
+repositories/
+migrations/
+schemas/
 
-  ai/
-    providers/
-    tools/
-    context/
-    types/
+ai/
+providers/
+tools/
+context/
+types/
 
-  pwa/
-    service-worker/
-    push/
+pwa/
+service-worker/
+push/
 
-  shared/
-    components/
-    hooks/
-    utils/
-    types/
-    constants/
-
+shared/
+components/
+hooks/
+utils/
+types/
+constants/
 
 Do not create giant monolithic files.
 
@@ -303,7 +301,6 @@ Today's current affairs
 Create a revision sheet
 Practice answer writing
 
-
 The chat should eventually become the primary interface for interacting with the application.
 
 For this foundation build:
@@ -449,6 +446,7 @@ The user must be able to create an exam.
 Initial model:
 
 Exam
+
 - id
 - name
 - examDate
@@ -458,7 +456,6 @@ Exam
 - updatedAt
 - optional syllabus
 - optional source/official notification reference
-
 
 The user should be able to:
 
@@ -541,7 +538,6 @@ Do NOT hardcode fake current-affairs data.
 The architecture must support a provider abstraction:
 
 CurrentAffairsProvider
-
 
 so future providers can include RSS/API/custom retrieval mechanisms without changing the UI.
 
@@ -677,7 +673,6 @@ Create an abstraction such as:
 
 DocumentGenerator
 
-
 which can eventually support:
 
 A4 revision sheets
@@ -709,7 +704,6 @@ Gemini structured content
 local HTML/SVG/canvas renderer
 ↓
 PNG/image
-
 
 This keeps text crisp and accurate.
 
@@ -801,7 +795,6 @@ Create an abstraction such as:
 
 AIProvider
 
-
 and a Gemini implementation.
 
 Eventually it should support:
@@ -831,19 +824,18 @@ The assistant should eventually act as an orchestrator.
 Conceptually:
 
 User
- ↓
+↓
 AI Assistant
- ↓
+↓
 Tool Registry
- ├── Notes
- ├── Exams
- ├── Current Affairs
- ├── Vault
- ├── Writing
- ├── Documents
- ├── Progress
- └── Notifications
-
+├── Notes
+├── Exams
+├── Current Affairs
+├── Vault
+├── Writing
+├── Documents
+├── Progress
+└── Notifications
 
 For now, establish clean interfaces/types and the provider boundary.
 
@@ -913,7 +905,6 @@ Service Worker
 ↓
 Notification
 
-
 Do not use Vercel as the application's database.
 
 Do not add authentication.
@@ -973,7 +964,6 @@ Use versioned schemas so future database migrations are possible.
 Include:
 
 schemaVersion
-
 
 in exported data.
 
@@ -1197,7 +1187,6 @@ npm install
 npm run dev
 npm run build
 npm run preview
-
 
 The README must explain:
 

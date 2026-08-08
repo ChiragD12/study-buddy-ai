@@ -4,14 +4,14 @@ import { toast } from "sonner";
 
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { examRepository } from "@/data/repositories/exams.repository";
-import { resolveProvider } from "@/ai/providers";
+import { getGeminiKey } from "@/ai/providers/keyStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { NotImplementedNote, PageContainer } from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
-import type { NoteConfidence } from "@/shared/types/domain";
+import type { NoteConfidence, NoteVerification } from "@/shared/types/domain";
 
 export const Route = createFileRoute("/notes/$noteId")({
   head: () => ({
@@ -31,7 +31,17 @@ function NoteDetailPage() {
   const note = useRepoQuery(() => noteRepository.get(noteId), [noteId]);
   const exams = useRepoQuery(() => examRepository.list());
 
-  const [draft, setDraft] = useState({ title: "", content: "", tags: "", subject: "", topic: "", source: "", examId: "", confidence: "medium" as NoteConfidence });
+  const [draft, setDraft] = useState({
+    title: "",
+    content: "",
+    tags: "",
+    subject: "",
+    topic: "",
+    source: "",
+    examId: "",
+    confidence: "medium" as NoteConfidence,
+    verification: "unverified" as NoteVerification,
+  });
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -45,6 +55,7 @@ function NoteDetailPage() {
       source: note.source ?? "",
       examId: note.examId ?? "",
       confidence: note.confidence,
+      verification: note.verification,
     });
     setLoaded(true);
   }, [note, loaded]);
@@ -66,20 +77,38 @@ function NoteDetailPage() {
   }
 
   async function save() {
+    const priorVerification = note?.verification;
+    const verificationHistory = note?.verificationHistory ?? [];
     await noteRepository.update(noteId, {
       title: draft.title,
       content: draft.content,
-      tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      tags: draft.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
       subject: draft.subject,
       topic: draft.topic,
       source: draft.source,
       examId: draft.examId || null,
       confidence: draft.confidence,
+      verification: draft.verification,
+      ...(priorVerification !== draft.verification
+        ? {
+            verificationHistory: [
+              ...verificationHistory,
+              {
+                at: new Date().toISOString(),
+                status: draft.verification,
+                summary: "Set manually by the user.",
+              },
+            ],
+          }
+        : {}),
     });
     toast.success("Note saved");
   }
 
-  const providerConfigured = Boolean(resolveProvider());
+  const providerConfigured = Boolean(getGeminiKey());
 
   return (
     <PageContainer>
@@ -109,6 +138,22 @@ function NoteDetailPage() {
               value={draft.subject}
               onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="note-verification">Verification</Label>
+            <select
+              id="note-verification"
+              value={draft.verification}
+              onChange={(event) =>
+                setDraft({ ...draft, verification: event.target.value as NoteVerification })
+              }
+              className="tap-target w-full rounded-xl border bg-surface px-3 text-sm"
+            >
+              <option value="unverified">Unverified</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Needs review</option>
+              <option value="flagged">Flagged</option>
+            </select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="note-topic">Topic</Label>

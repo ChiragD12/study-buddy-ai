@@ -12,6 +12,10 @@ export const Route = createFileRoute("/vault/pdfs")({
     ],
   }),
   component: () => (
-    <VaultView title="PDFs" description="Revision sheets and documents stored on this device." kind="pdf" />
+    <VaultView
+      title="PDFs"
+      description="Revision sheets and documents stored on this device."
+      kind="pdf"
+    />
   ),
 });

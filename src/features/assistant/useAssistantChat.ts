@@ -15,7 +15,7 @@ export type ChatStatus = "idle" | "submitted" | "streaming";
  * Today it forwards the conversation to the configured provider. Tool calling
  * (see `src/ai/tools/registry.ts`) plugs in here without touching the UI.
  */
-export function useAssistantChat(model: string) {
+export function useAssistantChat() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
@@ -66,7 +66,7 @@ export function useAssistantChat(model: string) {
       setMessages((current) => [...current, userMessage]);
       setStatus("submitted");
 
-      const provider = resolveProvider(model);
+      const provider = await resolveProvider();
       const assistantMessage = await chatRepository.appendMessage({
         conversationId,
         role: "assistant",
@@ -106,7 +106,9 @@ export function useAssistantChat(model: string) {
         await chatRepository.updateMessage(assistantMessage.id, { content, state: "complete" });
         setMessages((current) =>
           current.map((message) =>
-            message.id === assistantMessage.id ? { ...message, content, state: "complete" } : message,
+            message.id === assistantMessage.id
+              ? { ...message, content, state: "complete" }
+              : message,
           ),
         );
       } catch (cause) {
@@ -123,7 +125,7 @@ export function useAssistantChat(model: string) {
         setStatus("idle");
       }
     },
-    [conversationId, model, status],
+    [conversationId, status],
   );
 
   return { conversationId, messages, status, error, send, stop, newConversation, load };

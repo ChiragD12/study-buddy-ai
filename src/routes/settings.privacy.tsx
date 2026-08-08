@@ -40,7 +40,10 @@ const FACTS = [
 function PrivacyPage() {
   return (
     <PageContainer>
-      <PageHeader title="Privacy" description="Short version: your study data does not leave this device unless you ask it to." />
+      <PageHeader
+        title="Privacy"
+        description="Short version: your study data does not leave this device unless you ask it to."
+      />
       <ul className="flex flex-col gap-3">
         {FACTS.map((fact) => (
           <li key={fact.title} className="surface-card p-5">

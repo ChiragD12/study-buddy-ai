@@ -2,7 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 
 import { useSettings } from "@/app/providers/SettingsProvider";
-import { ChatComposer, MessageBubble, SuggestionChips } from "@/features/assistant/components/ChatParts";
+import {
+  ChatComposer,
+  MessageBubble,
+  SuggestionChips,
+} from "@/features/assistant/components/ChatParts";
 import { StudySnapshot } from "@/features/assistant/components/StudySnapshot";
 import { useAssistantChat } from "@/features/assistant/useAssistantChat";
 import { greeting } from "@/shared/utils/format";
@@ -36,8 +40,7 @@ const SUGGESTIONS = [
 ];
 
 function AssistantPage() {
-  const { settings } = useSettings();
-  const { messages, status, error, send, stop } = useAssistantChat(settings.geminiModel);
+  const { messages, status, error, send, stop } = useAssistantChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasMessages = messages.length > 0;
   const hello = useMemo(() => greeting(), []);

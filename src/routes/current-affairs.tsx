@@ -7,7 +7,12 @@ import { currentAffairsProviders, orderByRelevance } from "@/features/current-af
 import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { Button } from "@/components/ui/button";
-import { EmptyState, NotImplementedNote, PageContainer, PageHeader } from "@/shared/components/Page";
+import {
+  EmptyState,
+  NotImplementedNote,
+  PageContainer,
+  PageHeader,
+} from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
 import { formatDate } from "@/shared/utils/format";
 
@@ -15,9 +20,15 @@ export const Route = createFileRoute("/current-affairs")({
   head: () => ({
     meta: [
       { title: "Current Affairs — Exam Assistant" },
-      { name: "description", content: "Exam-aware current affairs, ordered by internal relevance." },
+      {
+        name: "description",
+        content: "Exam-aware current affairs, ordered by internal relevance.",
+      },
       { property: "og:title", content: "Current Affairs — Exam Assistant" },
-      { property: "og:description", content: "Exam-aware current affairs, ordered by internal relevance." },
+      {
+        property: "og:description",
+        content: "Exam-aware current affairs, ordered by internal relevance.",
+      },
     ],
   }),
   component: CurrentAffairsPage,
@@ -60,7 +71,10 @@ function CurrentAffairsPage() {
             disabled={refreshing}
             onClick={() => void refresh()}
           >
-            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
+            <RefreshCw
+              className={`size-4 ${refreshing ? "animate-spin" : ""}`}
+              aria-hidden="true"
+            />
             Refresh
           </Button>
         }
@@ -68,9 +82,9 @@ function CurrentAffairsPage() {
 
       {!provider ? (
         <NotImplementedNote>
-          No retrieval source is connected. Providers implement{" "}
-          <code>CurrentAffairsProvider</code> (RSS, API or custom) and register themselves — the
-          app deliberately ships without sample news.
+          No retrieval source is connected. Providers implement <code>CurrentAffairsProvider</code>{" "}
+          (RSS, API or custom) and register themselves — the app deliberately ships without sample
+          news.
         </NotImplementedNote>
       ) : null}
 

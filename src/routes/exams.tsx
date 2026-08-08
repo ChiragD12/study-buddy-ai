@@ -12,16 +12,22 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageContainer, PageHeader } from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
-import { formatRelativeDays } from "@/shared/utils/format";
+import { formatDate, formatRelativeDays } from "@/shared/utils/format";
 import type { Exam, ExamPriority } from "@/shared/types/domain";
 
 export const Route = createFileRoute("/exams")({
   head: () => ({
     meta: [
       { title: "Exams — Exam Assistant" },
-      { name: "description", content: "Add your exams and dates to drive countdowns and study focus." },
+      {
+        name: "description",
+        content: "Add your exams and dates to drive countdowns and study focus.",
+      },
       { property: "og:title", content: "Exams — Exam Assistant" },
-      { property: "og:description", content: "Add your exams and dates to drive countdowns and study focus." },
+      {
+        property: "og:description",
+        content: "Add your exams and dates to drive countdowns and study focus.",
+      },
     ],
   }),
   component: ExamsPage,
@@ -176,7 +182,12 @@ function ExamsPage() {
             <Button type="submit" className="tap-target">
               {form.id ? "Save changes" : "Add exam"}
             </Button>
-            <Button type="button" variant="ghost" className="tap-target" onClick={() => setForm(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="tap-target"
+              onClick={() => setForm(null)}
+            >
               Cancel
             </Button>
           </div>
@@ -201,7 +212,8 @@ function ExamsPage() {
                   <div className="min-w-0">
                     <p className="truncate text-base font-semibold">{exam.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {formatRelativeDays(daysUntil(exam.examDate))} · {exam.priority} priority
+                      {formatDate(exam.examDate)} · {formatRelativeDays(daysUntil(exam.examDate))} ·{" "}
+                      {exam.priority} priority
                       {active ? " · active" : ""}
                     </p>
                     {exam.description ? (
@@ -236,6 +248,7 @@ function ExamsPage() {
                       aria-label={`Delete ${exam.name}`}
                       onClick={async () => {
                         await examRepository.remove(exam.id);
+                        if (active) await update({ activeExamId: null });
                         toast.success("Exam deleted");
                       }}
                       className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"

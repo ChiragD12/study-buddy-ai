@@ -48,13 +48,7 @@ export interface Note {
 
 export type WritingTrack = "english" | "civil-services";
 export type WritingFormat =
-  | "letter"
-  | "precis"
-  | "essay"
-  | "comprehension"
-  | "gs-answer"
-  | "structured-answer"
-  | "other";
+  "letter" | "precis" | "essay" | "comprehension" | "gs-answer" | "structured-answer" | "other";
 
 export interface WritingPrompt {
   id: ID;

@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { NotebookPen, Search } from "lucide-react";
-import { useState } from "react";
+import { FileUp, NotebookPen, Search } from "lucide-react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,10 @@ export const Route = createFileRoute("/notes/")({
       { title: "Notes — Exam Assistant" },
       { name: "description", content: "Your personal study notes, stored locally on this device." },
       { property: "og:title", content: "Notes — Exam Assistant" },
-      { property: "og:description", content: "Your personal study notes, stored locally on this device." },
+      {
+        property: "og:description",
+        content: "Your personal study notes, stored locally on this device.",
+      },
     ],
   }),
   component: NotesPage,
@@ -25,10 +29,28 @@ function NotesPage() {
   const [query, setQuery] = useState("");
   const notes = useRepoQuery(() => noteRepository.search(query), [query]);
   const navigate = useNavigate();
+  const importRef = useRef<HTMLInputElement>(null);
 
   async function createNote() {
     const note = await noteRepository.create({ title: "Untitled note" });
     void navigate({ to: "/notes/$noteId", params: { noteId: note.id } });
+  }
+
+  async function importNotes(files: FileList | null) {
+    if (!files?.length) return;
+    const textFiles = Array.from(files).filter((file) => /\.(txt|md)$/i.test(file.name));
+    if (!textFiles.length) {
+      toast.error("Choose a .txt or .md file to import as a note.");
+      return;
+    }
+    for (const file of textFiles) {
+      const content = await file.text();
+      await noteRepository.create({
+        title: file.name.replace(/\.(txt|md)$/i, "") || "Imported note",
+        content,
+      });
+    }
+    toast.success(`Imported ${textFiles.length} note${textFiles.length === 1 ? "" : "s"}`);
   }
 
   return (
@@ -37,9 +59,29 @@ function NotesPage() {
         title="Notes"
         description="Written, pasted or imported — notes never leave your device unless you explicitly ask the assistant about one."
         action={
-          <Button className="tap-target" onClick={() => void createNote()}>
-            New note
-          </Button>
+          <div className="flex gap-2">
+            <input
+              ref={importRef}
+              type="file"
+              accept=".txt,.md,text/plain,text/markdown"
+              multiple
+              className="sr-only"
+              onChange={(event) => {
+                void importNotes(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            <Button
+              variant="secondary"
+              className="tap-target"
+              onClick={() => importRef.current?.click()}
+            >
+              <FileUp className="size-4" aria-hidden="true" /> Import
+            </Button>
+            <Button className="tap-target" onClick={() => void createNote()}>
+              New note
+            </Button>
+          </div>
         }
       />
 
@@ -66,7 +108,7 @@ function NotesPage() {
           description={
             query
               ? "Try a different search term."
-              : "Create a note or paste existing material. Everything is stored in your device's local database."
+              : "Create a note, paste existing material, or import .txt and .md files. Everything stays on this device."
           }
         />
       ) : (

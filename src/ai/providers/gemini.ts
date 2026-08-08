@@ -1,4 +1,9 @@
-import { AINotConfiguredError, type AIGenerateOptions, type AIMessage, type AIProvider } from "@/ai/types";
+import {
+  AINotConfiguredError,
+  type AIGenerateOptions,
+  type AIMessage,
+  type AIProvider,
+} from "@/ai/types";
 import { getGeminiKey } from "@/ai/providers/keyStore";
 
 const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -28,6 +33,11 @@ function extractText(payload: GeminiResponse): string {
     .flatMap((candidate) => candidate.content?.parts ?? [])
     .map((part) => part.text ?? "")
     .join("");
+}
+
+function safeErrorMessage(message: string): string {
+  const key = getGeminiKey();
+  return key ? message.split(key).join("[redacted]") : message;
 }
 
 /**
@@ -83,17 +93,31 @@ export function createGeminiProvider(model: string): AIProvider {
         });
         const payload = (await response.json()) as GeminiResponse;
         if (!response.ok) {
-          return { ok: false, message: payload.error?.message ?? `HTTP ${response.status}` };
+          return {
+            ok: false,
+            message: `Connection failed for ${model} — ${safeErrorMessage(
+              payload.error?.message ?? `HTTP ${response.status}`,
+            )}`,
+          };
         }
         return { ok: true, message: `Connected to ${model}.` };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : "Request failed." };
+        return {
+          ok: false,
+          message: `Connection failed for ${model} — ${safeErrorMessage(
+            error instanceof Error ? error.message : "Request failed.",
+          )}`,
+        };
       }
     },
     async generate(messages, options) {
       const response = await call("generateContent", buildBody(messages, options), options?.signal);
       const payload = (await response.json()) as GeminiResponse;
-      if (!response.ok) throw new Error(payload.error?.message ?? `Gemini error ${response.status}`);
+      if (!response.ok) {
+        throw new Error(
+          safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
+        );
+      }
       return extractText(payload);
     },
     async *stream(messages, options) {
@@ -104,7 +128,9 @@ export function createGeminiProvider(model: string): AIProvider {
       );
       if (!response.ok || !response.body) {
         const payload = (await response.json().catch(() => ({}))) as GeminiResponse;
-        throw new Error(payload.error?.message ?? `Gemini error ${response.status}`);
+        throw new Error(
+          safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
+        );
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

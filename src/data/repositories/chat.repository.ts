@@ -31,7 +31,10 @@ export const chatRepository: ChatRepository = {
     });
   },
   async listMessages(conversationId) {
-    const messages = await getDb().messages.where("conversationId").equals(conversationId).toArray();
+    const messages = await getDb()
+      .messages.where("conversationId")
+      .equals(conversationId)
+      .toArray();
     return messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   },
   async appendMessage(message) {

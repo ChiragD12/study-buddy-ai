@@ -33,7 +33,9 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
 
 export interface StudyPlanRepository {
   list(): Promise<StudyPlanEntry[]>;
-  create(input: Pick<StudyPlanEntry, "title" | "date"> & Partial<StudyPlanEntry>): Promise<StudyPlanEntry>;
+  create(
+    input: Pick<StudyPlanEntry, "title" | "date"> & Partial<StudyPlanEntry>,
+  ): Promise<StudyPlanEntry>;
   toggleDone(id: ID): Promise<void>;
   remove(id: ID): Promise<void>;
 }

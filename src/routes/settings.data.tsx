@@ -10,9 +10,15 @@ export const Route = createFileRoute("/settings/data")({
   head: () => ({
     meta: [
       { title: "Data & Backup — Exam Assistant" },
-      { name: "description", content: "Export and restore your study data as a portable JSON file." },
+      {
+        name: "description",
+        content: "Export and restore your study data as a portable JSON file.",
+      },
       { property: "og:title", content: "Data & Backup — Exam Assistant" },
-      { property: "og:description", content: "Export and restore your study data as a portable JSON file." },
+      {
+        property: "og:description",
+        content: "Export and restore your study data as a portable JSON file.",
+      },
     ],
   }),
   component: DataSettings,
@@ -87,7 +93,11 @@ function DataSettings() {
           aria-label="Choose a backup file"
           onChange={(event) => void handleImport(event.target.files?.[0])}
         />
-        <Button variant="secondary" className="tap-target" onClick={() => inputRef.current?.click()}>
+        <Button
+          variant="secondary"
+          className="tap-target"
+          onClick={() => inputRef.current?.click()}
+        >
           Choose backup file
         </Button>
       </div>

@@ -7,24 +7,10 @@
  */
 const SW_URL = "/sw.js";
 
-function isPreviewHost(hostname: string): boolean {
-  return (
-    hostname.startsWith("id-preview--") ||
-    hostname.startsWith("preview--") ||
-    hostname === "lovableproject.com" ||
-    hostname.endsWith(".lovableproject.com") ||
-    hostname === "lovableproject-dev.com" ||
-    hostname.endsWith(".lovableproject-dev.com") ||
-    hostname === "beta.lovable.dev" ||
-    hostname.endsWith(".beta.lovable.dev")
-  );
-}
-
 function shouldRegister(): boolean {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return false;
   if (!import.meta.env.PROD) return false;
   if (window.top !== window.self) return false;
-  if (isPreviewHost(window.location.hostname)) return false;
   if (new URLSearchParams(window.location.search).get("sw") === "off") return false;
   return true;
 }

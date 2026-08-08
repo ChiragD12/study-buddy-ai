@@ -115,7 +115,9 @@ function PlanPage() {
                 <span className={entry.done ? "text-muted-foreground line-through" : "font-medium"}>
                   {entry.title}
                 </span>
-                <span className="block text-xs text-muted-foreground">{formatDate(entry.date)}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {formatDate(entry.date)}
+                </span>
               </label>
               <button
                 type="button"

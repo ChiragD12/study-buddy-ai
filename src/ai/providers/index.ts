@@ -1,13 +1,15 @@
 import { createGeminiProvider } from "@/ai/providers/gemini";
 import { getGeminiKey } from "@/ai/providers/keyStore";
 import type { AIProvider } from "@/ai/types";
+import { settingsRepository } from "@/data/repositories/settings.repository";
 
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
-
-/** Resolve the active provider, or null when the user has not configured one. */
-export function resolveProvider(model = DEFAULT_GEMINI_MODEL): AIProvider | null {
+/** Resolve the active provider from the persisted Dexie settings. */
+export async function resolveProvider(): Promise<AIProvider | null> {
   if (!getGeminiKey()) return null;
-  return createGeminiProvider(model);
+  const settings = await settingsRepository.get();
+  if (settings.aiProvider !== "gemini") return null;
+  return createGeminiProvider(settings.geminiModel);
 }
 
 export { createGeminiProvider };
+export { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/ai/providers/models";
