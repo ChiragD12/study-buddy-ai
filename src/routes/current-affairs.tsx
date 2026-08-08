@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Newspaper, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bookmark, ExternalLink, Newspaper, RefreshCw, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { currentAffairsProviders, orderByRelevance } from "@/features/current-affairs/provider";
+import { currentAffairsProviders } from "@/features/current-affairs/provider";
 import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   EmptyState,
   NotImplementedNote,
@@ -15,20 +16,13 @@ import {
 } from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
 import { formatDate } from "@/shared/utils/format";
+import type { CurrentAffairsItem } from "@/shared/types/domain";
 
 export const Route = createFileRoute("/current-affairs")({
   head: () => ({
     meta: [
       { title: "Current Affairs — Exam Assistant" },
-      {
-        name: "description",
-        content: "Exam-aware current affairs, ordered by internal relevance.",
-      },
-      { property: "og:title", content: "Current Affairs — Exam Assistant" },
-      {
-        property: "og:description",
-        content: "Exam-aware current affairs, ordered by internal relevance.",
-      },
+      { name: "description", content: "Browse and save locally stored current affairs." },
     ],
   }),
   component: CurrentAffairsPage,
@@ -37,40 +31,65 @@ export const Route = createFileRoute("/current-affairs")({
 function CurrentAffairsPage() {
   const stored = useRepoQuery(() => currentAffairsRepository.list());
   const exams = useRepoQuery(() => examRepository.list());
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [source, setSource] = useState("");
+  const [savedOnly, setSavedOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selected, setSelected] = useState<CurrentAffairsItem | null>(null);
   const provider = currentAffairsProviders.active();
-  const itemId = new URLSearchParams(window.location.search).get("itemId");
+  const categories = useMemo(
+    () => [...new Set((stored ?? []).flatMap((item) => item.categories ?? []))].sort(),
+    [stored],
+  );
+  const sources = useMemo(
+    () => [...new Set((stored ?? []).map((item) => item.source))].sort(),
+    [stored],
+  );
+  const items = (stored ?? []).filter((item) => {
+    const haystack = [item.title, item.summary, item.source, ...(item.categories ?? [])]
+      .join(" ")
+      .toLowerCase();
+    return (
+      (!query || haystack.includes(query.toLowerCase())) &&
+      (!category || item.categories?.includes(category)) &&
+      (!source || item.source === source) &&
+      (!savedOnly || Boolean(item.savedAt))
+    );
+  });
 
   useEffect(() => {
-    if (!itemId || !stored) return;
-    document.getElementById(`current-affairs-${itemId}`)?.scrollIntoView({ block: "center" });
-    void currentAffairsRepository.markRead(itemId);
-  }, [itemId, stored]);
+    if (selected) void currentAffairsRepository.markRead(selected.id);
+  }, [selected]);
 
   async function refresh() {
     if (!provider) {
-      toast.error("No current-affairs source configured yet.");
+      toast.error(
+        "No feed is configured yet. Add a verified public RSS or Atom URL to the feed catalogue.",
+      );
       return;
     }
     setRefreshing(true);
     try {
-      const items = await provider.fetchItems({ exams: exams ?? [] });
-      await currentAffairsRepository.saveMany(items);
-      toast.success(`Updated from ${provider.label}`);
+      const incoming = await provider.fetchItems({ exams: exams ?? [], limit: 60 });
+      await currentAffairsRepository.saveMany(incoming);
+      toast.success(`Refreshed ${incoming.length} current-affairs items`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Retrieval failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't refresh current affairs. Previously downloaded articles are still available.",
+      );
     } finally {
       setRefreshing(false);
     }
   }
 
-  const items = orderByRelevance(stored ?? []);
-
   return (
     <PageContainer>
       <PageHeader
-        title="Today's Important Current Affairs"
-        description="Ordering is decided internally from your exams, subjects and recency. No scores are shown."
+        title="Current Affairs"
+        description="Browse public-feed summaries stored locally for revision."
         action={
           <Button
             variant="secondary"
@@ -78,46 +97,186 @@ function CurrentAffairsPage() {
             disabled={refreshing}
             onClick={() => void refresh()}
           >
-            <RefreshCw
-              className={`size-4 ${refreshing ? "animate-spin" : ""}`}
-              aria-hidden="true"
-            />
-            Refresh
+            <RefreshCw className={refreshing ? "size-4 animate-spin" : "size-4"} /> Refresh
           </Button>
         }
       />
-
       {!provider ? (
         <NotImplementedNote>
-          No retrieval source is connected. Providers implement <code>CurrentAffairsProvider</code>{" "}
-          (RSS, API or custom) and register themselves — the app deliberately ships without sample
-          news.
+          No verified public feed is configured yet. Previously downloaded articles remain available
+          offline.
         </NotImplementedNote>
       ) : null}
-
+      <div className="mt-5 space-y-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            aria-label="Search current affairs"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search title, summary, source"
+            className="pl-9"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select
+            aria-label="Filter by category"
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+          >
+            <option value="">All categories</option>
+            {categories.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by source"
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+          >
+            <option value="">All sources</option>
+            {sources.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant={savedOnly ? "default" : "secondary"}
+            className="tap-target"
+            onClick={() => setSavedOnly((value) => !value)}
+          >
+            <Bookmark className="size-4" /> Saved
+          </Button>
+        </div>
+      </div>
       <div className="mt-5">
         {stored === undefined ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : items.length === 0 ? (
+        ) : !stored.length ? (
           <EmptyState
             icon={<Newspaper className="size-6" />}
-            title="Nothing retrieved yet"
-            description="Once a source is connected, items appear here ordered by relevance to your exams."
+            title="No current-affairs articles yet"
+            description="Refresh after configuring a verified public RSS or Atom feed."
+          />
+        ) : !items.length ? (
+          <EmptyState
+            title="No current-affairs items match your search"
+            description="Try another search or filter."
           />
         ) : (
           <ul className="flex flex-col gap-3">
             {items.map((item) => (
-              <li id={`current-affairs-${item.id}`} key={item.id} className="surface-card p-4">
-                <p className="font-medium">{item.title}</p>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.summary}</p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {item.source} · {formatDate(item.publishedAt)}
-                </p>
-              </li>
+              <ArticleCard
+                key={item.id}
+                item={item}
+                onOpen={() => setSelected(item)}
+                onToggleSave={() => void currentAffairsRepository.toggleSaved(item.id)}
+              />
             ))}
           </ul>
         )}
       </div>
+      {selected ? (
+        <ArticleDetail
+          item={selected}
+          onClose={() => setSelected(null)}
+          onToggleSave={() => void currentAffairsRepository.toggleSaved(selected.id)}
+        />
+      ) : null}
     </PageContainer>
+  );
+}
+
+function ArticleCard({
+  item,
+  onOpen,
+  onToggleSave,
+}: {
+  item: CurrentAffairsItem;
+  onOpen: () => void;
+  onToggleSave: () => void;
+}) {
+  return (
+    <li className="surface-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <p className={`font-medium ${item.readAt ? "" : "font-semibold"}`}>{item.title}</p>
+          <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+            {item.summary || "No summary provided."}
+          </p>
+        </button>
+        <button
+          type="button"
+          aria-label={item.savedAt ? `Unsave ${item.title}` : `Save ${item.title}`}
+          onClick={onToggleSave}
+          className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"
+        >
+          <Bookmark
+            className={
+              item.savedAt ? "size-4 fill-primary text-primary" : "size-4 text-muted-foreground"
+            }
+          />
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {item.source} · {formatDate(item.publishedAt)}
+        {item.categories?.length ? ` · ${item.categories.join(", ")}` : ""}
+      </p>
+    </li>
+  );
+}
+
+function ArticleDetail({
+  item,
+  onClose,
+  onToggleSave,
+}: {
+  item: CurrentAffairsItem;
+  onClose: () => void;
+  onToggleSave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <div className="surface-card max-h-[90dvh] w-full max-w-2xl overflow-auto p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">{item.title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {item.source} · {formatDate(item.publishedAt)}
+              {item.categories?.length ? ` · ${item.categories.join(", ")}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close article"
+            onClick={onClose}
+            className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed">
+          {item.summary || "No summary provided."}
+        </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button variant="secondary" className="tap-target" onClick={onToggleSave}>
+            <Bookmark className="size-4" /> {item.savedAt ? "Unsave" : "Save"}
+          </Button>
+          {item.url ? (
+            <Button
+              className="tap-target"
+              onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}
+            >
+              <ExternalLink className="size-4" /> Open article
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }

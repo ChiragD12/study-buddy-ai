@@ -1,6 +1,6 @@
 import { getDb } from "@/data/db/db";
 import { newId, now, timestamps } from "@/data/repositories/util";
-import type { ID, WritingAttempt, WritingPrompt } from "@/shared/types/domain";
+import type { ID, WritingAttempt, WritingPrompt, WritingStatus } from "@/shared/types/domain";
 
 export type PromptDraft = Pick<WritingPrompt, "title" | "track" | "format"> &
   Partial<WritingPrompt>;
@@ -11,8 +11,16 @@ export interface WritingRepository {
   createPrompt(draft: PromptDraft): Promise<WritingPrompt>;
   updatePrompt(id: ID, patch: Partial<WritingPrompt>): Promise<void>;
   removePrompt(id: ID): Promise<void>;
+  /**
+   * Persists the live working answer for a prompt. Called on every
+   * (debounced) keystroke so the answer survives a refresh or navigating
+   * away. Auto-advances status from "not-started" to "in-progress" the
+   * first time real content is written; never auto-completes a prompt.
+   */
+  saveDraft(id: ID, content: string): Promise<void>;
+  setStatus(id: ID, status: WritingStatus): Promise<void>;
   listAttempts(promptId: ID): Promise<WritingAttempt[]>;
-  /** Attempts are append-only: saving a draft never overwrites earlier work. */
+  /** Attempts are append-only: saving a snapshot never overwrites earlier work. */
   saveAttempt(input: {
     promptId: ID;
     content: string;
@@ -40,9 +48,13 @@ export const writingRepository: WritingRepository = {
       brief: draft.brief,
       track: draft.track,
       format: draft.format,
+      topic: draft.topic,
+      status: draft.status ?? "not-started",
       wordLimit: draft.wordLimit,
       timeLimitMinutes: draft.timeLimitMinutes,
       examId: draft.examId ?? null,
+      draftContent: draft.draftContent ?? "",
+      draftUpdatedAt: undefined,
       ...timestamps(),
     };
     await getDb().writingPrompts.add(prompt);
@@ -56,6 +68,23 @@ export const writingRepository: WritingRepository = {
       await getDb().writingPrompts.delete(id);
       await getDb().writingAttempts.where("promptId").equals(id).delete();
     });
+  },
+  async saveDraft(id, content) {
+    const db = getDb();
+    const prompt = await db.writingPrompts.get(id);
+    if (!prompt) return;
+    const patch: Partial<WritingPrompt> = {
+      draftContent: content,
+      draftUpdatedAt: now(),
+      updatedAt: now(),
+    };
+    if (prompt.status === "not-started" && content.trim()) {
+      patch.status = "in-progress";
+    }
+    await db.writingPrompts.update(id, patch);
+  },
+  async setStatus(id, status) {
+    await getDb().writingPrompts.update(id, { status, updatedAt: now() });
   },
   async listAttempts(promptId) {
     const attempts = await getDb().writingAttempts.where("promptId").equals(promptId).toArray();

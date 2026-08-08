@@ -42,9 +42,13 @@ export const examRepository: ExamRepository = {
   },
   async remove(id) {
     const db = getDb();
-    await db.transaction("rw", db.exams, db.settings, async () => {
+    await db.transaction("rw", db.exams, db.settings, db.writingPrompts, async () => {
       await db.exams.delete(id);
       await studyPlanRepository.removeForExam(id);
+      // Safe-reference: writing prompts are never deleted when their exam
+      // is, they just lose the association (same pattern as activeExamId
+      // below).
+      await db.writingPrompts.where("examId").equals(id).modify({ examId: null });
       const settings = await db.settings.get("app");
       if (settings?.activeExamId === id) {
         await db.settings.update("app", { activeExamId: null, updatedAt: now() });

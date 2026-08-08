@@ -4,6 +4,7 @@ import type { CurrentAffairsItem, ID, StudyPlanEntry } from "@/shared/types/doma
 
 export interface CurrentAffairsRepository {
   list(): Promise<CurrentAffairsItem[]>;
+  search(query: string): Promise<CurrentAffairsItem[]>;
   saveMany(items: CurrentAffairsItem[]): Promise<void>;
   toggleSaved(id: ID): Promise<void>;
   markRead(id: ID): Promise<void>;
@@ -41,6 +42,16 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
       (a, b) =>
         (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0) ||
         b.publishedAt.localeCompare(a.publishedAt),
+    );
+  },
+  async search(query) {
+    const items = await currentAffairsRepository.list();
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return items;
+    return items.filter((item) =>
+      [item.title, item.summary, item.source, ...(item.categories ?? [])]
+        .filter(Boolean)
+        .some((field) => field.toLowerCase().includes(normalized)),
     );
   },
   async saveMany(items) {

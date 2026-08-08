@@ -50,15 +50,29 @@ export type WritingTrack = "english" | "civil-services";
 export type WritingFormat =
   "letter" | "precis" | "essay" | "comprehension" | "gs-answer" | "structured-answer" | "other";
 
+/** Simple manual lifecycle for a writing prompt's working answer. */
+export type WritingStatus = "not-started" | "in-progress" | "completed";
+
 export interface WritingPrompt {
   id: ID;
   title: string;
   brief?: string | undefined;
   track: WritingTrack;
   format: WritingFormat;
+  /** Free-text subject/topic tag, e.g. "Polity", "Economy". */
+  topic?: string | undefined;
+  status: WritingStatus;
   wordLimit?: number | undefined;
   timeLimitMinutes?: number | undefined;
   examId?: ID | null | undefined;
+  /**
+   * The live working answer, autosaved as the user types so it survives a
+   * refresh or navigating away. Distinct from the append-only attempt
+   * history below, which only grows when the user explicitly saves a
+   * snapshot.
+   */
+  draftContent?: string | undefined;
+  draftUpdatedAt?: ISODate | undefined;
   createdAt: ISODate;
   updatedAt: ISODate;
 }
@@ -140,6 +154,8 @@ export interface CurrentAffairsItem {
   summary: string;
   url?: string | undefined;
   source: string;
+  author?: string | undefined;
+  imageUrl?: string | undefined;
   publishedAt: ISODate;
   sourceUrl?: string | undefined;
   fetchedAt?: ISODate | undefined;

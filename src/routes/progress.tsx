@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
-import { writingRepository } from "@/data/repositories/writing.repository";
+import { countWords, writingRepository } from "@/data/repositories/writing.repository";
 import { useSettings } from "@/app/providers/SettingsProvider";
 import { daysUntil } from "@/ai/context/assistantContext";
 import { formatRelativeDays } from "@/shared/utils/format";
@@ -49,6 +49,22 @@ function ProgressPage() {
   const activeExam = (exams ?? []).find((exam) => exam.id === settings.activeExamId);
   const nearestExam = (exams ?? []).find((exam) => exam.examDate && exam.examDate >= today);
 
+  const writingNotStarted = (prompts ?? []).filter(
+    (prompt) => (prompt.status ?? "not-started") === "not-started",
+  ).length;
+  const writingInProgress = (prompts ?? []).filter(
+    (prompt) => prompt.status === "in-progress",
+  ).length;
+  const writingCompleted = (prompts ?? []).filter((prompt) => prompt.status === "completed").length;
+  const writingTotal = prompts?.length ?? 0;
+  const writingCompletionPct = writingTotal
+    ? Math.round((writingCompleted / writingTotal) * 100)
+    : 0;
+  const totalWordsWritten = (prompts ?? []).reduce(
+    (sum, prompt) => sum + countWords(prompt.draftContent ?? ""),
+    0,
+  );
+
   return (
     <PageContainer>
       <PageHeader
@@ -69,6 +85,9 @@ function ProgressPage() {
         <Stat label="Exams tracked" value={exams?.length ?? "—"} />
         <Stat label="Notes" value={notes?.length ?? "—"} />
         <Stat label="Writing prompts" value={prompts?.length ?? "—"} />
+        <Stat label="Answers completed" value={prompts ? writingCompleted : "—"} />
+        <Stat label="Answers in progress" value={prompts ? writingInProgress : "—"} />
+        <Stat label="Answer completion" value={prompts ? `${writingCompletionPct}%` : "0%"} />
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -84,6 +103,15 @@ function ProgressPage() {
               {formatRelativeDays(daysUntil(nearestExam.examDate))}
             </p>
           ) : null}
+        </div>
+        <div className="surface-card p-4 sm:col-span-2">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Answer writing breakdown
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {writingNotStarted} not started · {writingInProgress} in progress · {writingCompleted}{" "}
+            completed · {totalWordsWritten} words written so far
+          </p>
         </div>
       </div>
 
