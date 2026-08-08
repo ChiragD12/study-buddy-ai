@@ -15,6 +15,7 @@ import {
   Star,
   TrendingUp,
   DatabaseBackup,
+  FileOutput,
   type LucideIcon,
 } from "lucide-react";
 
@@ -57,6 +58,7 @@ export const navSections: NavSection[] = [
     items: [
       { label: "Study Plan", to: "/plan", icon: BookOpen },
       { label: "Progress", to: "/progress", icon: TrendingUp },
+      { label: "Documents", to: "/documents", icon: FileOutput },
     ],
   },
   {

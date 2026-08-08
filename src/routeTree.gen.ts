@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CurrentAffairsRouteImport } from './routes/current-affairs'
+import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as ExamsRouteImport } from './routes/exams'
 import { Route as PlanRouteImport } from './routes/plan'
 import { Route as ProgressRouteImport } from './routes/progress'
@@ -36,6 +37,11 @@ const IndexRoute = IndexRouteImport.update({
 const CurrentAffairsRoute = CurrentAffairsRouteImport.update({
   id: '/current-affairs',
   path: '/current-affairs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExamsRoute = ExamsRouteImport.update({
@@ -122,6 +128,7 @@ const VaultSavedRoute = VaultSavedRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/current-affairs': typeof CurrentAffairsRoute
+  '/documents': typeof DocumentsRoute
   '/exams': typeof ExamsRoute
   '/plan': typeof PlanRoute
   '/progress': typeof ProgressRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/current-affairs': typeof CurrentAffairsRoute
+  '/documents': typeof DocumentsRoute
   '/exams': typeof ExamsRoute
   '/plan': typeof PlanRoute
   '/progress': typeof ProgressRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/current-affairs': typeof CurrentAffairsRoute
+  '/documents': typeof DocumentsRoute
   '/exams': typeof ExamsRoute
   '/plan': typeof PlanRoute
   '/progress': typeof ProgressRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/current-affairs'
+    | '/documents'
     | '/exams'
     | '/plan'
     | '/progress'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/current-affairs'
+    | '/documents'
     | '/exams'
     | '/plan'
     | '/progress'
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/current-affairs'
+    | '/documents'
     | '/exams'
     | '/plan'
     | '/progress'
@@ -246,6 +258,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CurrentAffairsRoute: typeof CurrentAffairsRoute
+  DocumentsRoute: typeof DocumentsRoute
   ExamsRoute: typeof ExamsRoute
   PlanRoute: typeof PlanRoute
   ProgressRoute: typeof ProgressRoute
@@ -278,6 +291,13 @@ declare module '@tanstack/react-router' {
       path: '/current-affairs'
       fullPath: '/current-affairs'
       preLoaderRoute: typeof CurrentAffairsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/exams': {
@@ -398,6 +418,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CurrentAffairsRoute: CurrentAffairsRoute,
+  DocumentsRoute: DocumentsRoute,
   ExamsRoute: ExamsRoute,
   PlanRoute: PlanRoute,
   ProgressRoute: ProgressRoute,
