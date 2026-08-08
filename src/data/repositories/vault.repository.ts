@@ -14,6 +14,14 @@ export interface VaultRepository {
   addFile(file: File, meta?: Partial<VaultItem>): Promise<VaultItem>;
   addBlob(name: string, blob: Blob, meta?: Partial<VaultItem>): Promise<VaultItem>;
   getBlob(id: ID): Promise<Blob | undefined>;
+  /**
+   * Replace the file data for an existing Vault item in place — same
+   * blobKey, same VaultItem id, no duplicate row. Used by in-place editors
+   * (e.g. Vault → PDFs AI edits) so repeated edits update one item instead
+   * of accumulating copies. Existing metadata (tags, favorite, examId,
+   * name) is preserved unless overridden via `patch`.
+   */
+  replaceBlob(id: ID, blob: Blob, patch?: Partial<VaultItem>): Promise<VaultItem | undefined>;
   toggleFavorite(id: ID): Promise<void>;
   update(id: ID, patch: Partial<VaultItem>): Promise<void>;
   remove(id: ID): Promise<void>;
@@ -76,6 +84,26 @@ export const vaultRepository: VaultRepository = {
     const record = await getDb().vaultBlobs.get(item.blobKey);
     return record?.blob;
   },
+  async replaceBlob(id, blob, patch) {
+    const item = await getDb().vaultItems.get(id);
+    if (!item) return undefined;
+    // Reuse the existing blobKey (creating one if this item somehow never
+    // had file data) so this is an in-place update, never a new blob row.
+    const blobKey = item.blobKey ?? newId();
+    const updated: VaultItem = {
+      ...item,
+      ...patch,
+      blobKey,
+      sizeBytes: blob.size,
+      mimeType: patch?.mimeType ?? item.mimeType,
+      updatedAt: now(),
+    };
+    await getDb().transaction("rw", getDb().vaultItems, getDb().vaultBlobs, async () => {
+      await getDb().vaultBlobs.put({ key: blobKey, blob });
+      await getDb().vaultItems.put(updated);
+    });
+    return updated;
+  },
   async toggleFavorite(id) {
     const item = await getDb().vaultItems.get(id);
     if (!item) return;
@@ -86,9 +114,16 @@ export const vaultRepository: VaultRepository = {
   },
   async remove(id) {
     const item = await getDb().vaultItems.get(id);
-    await getDb().transaction("rw", getDb().vaultItems, getDb().vaultBlobs, async () => {
-      if (item?.blobKey) await getDb().vaultBlobs.delete(item.blobKey);
-      await getDb().vaultItems.delete(id);
-    });
+    await getDb().transaction(
+      "rw",
+      getDb().vaultItems,
+      getDb().vaultBlobs,
+      getDb().vaultPdfDocs,
+      async () => {
+        if (item?.blobKey) await getDb().vaultBlobs.delete(item.blobKey);
+        await getDb().vaultPdfDocs.delete(id);
+        await getDb().vaultItems.delete(id);
+      },
+    );
   },
 };

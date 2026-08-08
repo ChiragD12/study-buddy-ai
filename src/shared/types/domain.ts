@@ -117,6 +117,31 @@ export interface VaultBlob {
   blob: Blob;
 }
 
+/**
+ * Editable structured representation of a Vault PDF's text content.
+ *
+ * For a PDF this app generated itself, this is the authoritative source —
+ * it's written directly, never re-parsed from the rendered PDF bytes. For a
+ * pre-existing uploaded PDF, this is created by extracting the PDF's real
+ * text layer (see features/vault/pdfExtract.ts) the first time it's edited,
+ * so edits act on the document's actual content, not a placeholder. Every
+ * subsequent AI edit reads and rewrites this record, then a real PDF is
+ * regenerated from it. One record per Vault PDF item (keyed by vaultItemId).
+ */
+export interface VaultPdfSection {
+  heading?: string;
+  paragraphs?: string[];
+  bullets?: string[];
+}
+
+export interface VaultPdfDoc {
+  /** Primary key — the owning VaultItem's id. One doc per Vault PDF item. */
+  vaultItemId: ID;
+  title: string;
+  sections: VaultPdfSection[];
+  updatedAt: ISODate;
+}
+
 export type ChatRole = "user" | "assistant" | "system";
 export type ChatMessageState = "complete" | "streaming" | "error";
 

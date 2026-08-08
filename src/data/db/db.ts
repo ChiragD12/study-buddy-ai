@@ -10,6 +10,7 @@ import type {
   StudyPlanEntry,
   VaultBlob,
   VaultItem,
+  VaultPdfDoc,
   WritingAttempt,
   WritingPrompt,
 } from "@/shared/types/domain";
@@ -26,6 +27,7 @@ export class AppDatabase extends Dexie {
   writingAttempts!: Table<WritingAttempt, string>;
   vaultItems!: Table<VaultItem, string>;
   vaultBlobs!: Table<VaultBlob, string>;
+  vaultPdfDocs!: Table<VaultPdfDoc, string>;
   conversations!: Table<Conversation, string>;
   messages!: Table<ChatMessage, string>;
   currentAffairs!: Table<CurrentAffairsItem, string>;

@@ -19,6 +19,7 @@ const TABLES = [
   "writingPrompts",
   "writingAttempts",
   "vaultItems",
+  "vaultPdfDocs",
   "conversations",
   "messages",
   "currentAffairs",

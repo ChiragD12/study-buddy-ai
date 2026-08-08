@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { VaultView } from "@/features/vault/VaultView";
+import { VaultPdfView } from "@/features/vault/VaultPdfView";
 
 export const Route = createFileRoute("/vault/pdfs")({
   head: () => ({
@@ -12,10 +12,6 @@ export const Route = createFileRoute("/vault/pdfs")({
     ],
   }),
   component: () => (
-    <VaultView
-      title="PDFs"
-      description="Revision sheets and documents stored on this device."
-      kind="pdf"
-    />
+    <VaultPdfView title="PDFs" description="Revision sheets and documents stored on this device." />
   ),
 });

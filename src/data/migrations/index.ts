@@ -5,7 +5,7 @@ import { DEFAULT_GEMINI_MODEL, isGeminiModel } from "@/ai/providers/models";
  * Exported backup schema version. Bump whenever the shape of exported data
  * changes so importers can migrate older backups.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 /**
  * All Dexie schema versions in order. Add a new `db.version(n).stores({...})`
@@ -119,4 +119,22 @@ export function applyMigrations(db: Dexie): void {
           }
         }),
     );
+  // Vault → PDFs AI editing: a small, additive table holding the editable
+  // structured-text representation of a Vault PDF (title + sections). One
+  // row per Vault PDF item, keyed by vaultItemId. Nothing else changes.
+  db.version(7).stores({
+    exams: "id, name, examDate, priority, updatedAt",
+    notes: "id, title, examId, subject, topic, verification, updatedAt, *tags",
+    writingPrompts: "id, track, format, examId, topic, status, updatedAt",
+    writingAttempts: "id, promptId, createdAt, updatedAt",
+    vaultItems: "id, name, kind, favorite, examId, updatedAt, *tags",
+    vaultBlobs: "key",
+    vaultPdfDocs: "vaultItemId",
+    conversations: "id, updatedAt",
+    messages: "id, conversationId, createdAt",
+    currentAffairs:
+      "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
+    studyPlan: "id, examId, date, priority, done, completedAt",
+    settings: "id",
+  });
 }
