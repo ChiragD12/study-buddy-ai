@@ -21,6 +21,12 @@ class ToolRegistry {
   list(): AITool<never, unknown>[] {
     return [...this.tools.values()];
   }
+
+  async execute(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const tool = this.get(name);
+    if (!tool) throw new Error("That action is unavailable.");
+    return tool.execute(args as never);
+  }
 }
 
 export const toolRegistry = new ToolRegistry();
@@ -30,15 +36,4 @@ export const toolRegistry = new ToolRegistry();
  * folders (notes, exams, current-affairs, vault, writing, documents,
  * progress, notifications) rather than in one monolithic AI service.
  */
-export const PLANNED_TOOLS = [
-  "notes.getById",
-  "notes.search",
-  "notes.verify",
-  "exams.listUpcoming",
-  "currentAffairs.today",
-  "vault.saveDocument",
-  "writing.evaluateAttempt",
-  "documents.generateRevisionSheet",
-  "progress.summary",
-  "notifications.schedule",
-] as const;
+export const PLANNED_TOOLS = [] as const;

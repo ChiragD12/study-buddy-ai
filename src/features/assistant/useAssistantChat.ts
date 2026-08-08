@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { buildAssistantContext, systemPrompt } from "@/ai/context/assistantContext";
 import { resolveProvider } from "@/ai/providers";
 import { AINotConfiguredError, type AIMessage } from "@/ai/types";
+import { runAssistantTools, type PendingToolAction } from "@/features/assistant/orchestrator";
 import { chatRepository } from "@/data/repositories/chat.repository";
 import { isBrowser } from "@/data/db/db";
 import type { ChatMessage } from "@/shared/types/domain";
@@ -20,6 +21,9 @@ export function useAssistantChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingToolAction | null>(null);
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
+  const confirmingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (id: string) => {
@@ -50,6 +54,59 @@ export function useAssistantChat() {
     abortRef.current = null;
     setStatus("idle");
   }, []);
+
+  const completeMessage = useCallback(async (id: string, content: string) => {
+    await chatRepository.updateMessage(id, { content, state: "complete" });
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id ? { ...message, content, state: "complete" } : message,
+      ),
+    );
+  }, []);
+
+  const confirmPending = useCallback(async () => {
+    if (!pendingAction || !conversationId || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setPendingAction(null);
+    setStatus("streaming");
+    const assistantMessage = pendingMessageId
+      ? messages.find((message) => message.id === pendingMessageId)
+      : undefined;
+    try {
+      const provider = await resolveProvider();
+      if (!provider || !assistantMessage) {
+        setError(new AINotConfiguredError().message);
+        return;
+      }
+      const result = await runAssistantTools(provider, pendingAction.history, true);
+      await completeMessage(
+        assistantMessage.id,
+        result.text ?? "The requested action was completed.",
+      );
+    } catch (cause) {
+      if (assistantMessage)
+        await completeMessage(
+          assistantMessage.id,
+          cause instanceof Error ? cause.message : "The action failed.",
+        );
+    } finally {
+      setPendingMessageId(null);
+      confirmingRef.current = false;
+      setStatus("idle");
+    }
+  }, [completeMessage, conversationId, messages, pendingAction, pendingMessageId]);
+
+  const rejectPending = useCallback(async () => {
+    if (confirmingRef.current) return;
+    setPendingAction(null);
+    const assistantMessage = pendingMessageId
+      ? messages.find((message) => message.id === pendingMessageId)
+      : undefined;
+    if (assistantMessage)
+      await completeMessage(assistantMessage.id, "Okay, I won't make that change.");
+    setPendingMessageId(null);
+    setStatus("idle");
+  }, [completeMessage, messages, pendingMessageId]);
 
   const send = useCallback(
     async (text: string) => {
@@ -94,23 +151,20 @@ export function useAssistantChat() {
 
       try {
         setStatus("streaming");
-        let content = "";
-        for await (const chunk of provider.stream(history, { signal: controller.signal })) {
-          content += chunk.delta;
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessage.id ? { ...message, content } : message,
-            ),
+        const result = await runAssistantTools(provider, history);
+        if (result.pending) {
+          setPendingAction(result.pending);
+          setPendingMessageId(assistantMessage.id);
+          await completeMessage(
+            assistantMessage.id,
+            "I can make that local change. Review it and confirm to continue.",
+          );
+        } else {
+          await completeMessage(
+            assistantMessage.id,
+            result.text ?? "I couldn't complete that request.",
           );
         }
-        await chatRepository.updateMessage(assistantMessage.id, { content, state: "complete" });
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantMessage.id
-              ? { ...message, content, state: "complete" }
-              : message,
-          ),
-        );
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : "Request failed.";
         setError(message);
@@ -125,8 +179,20 @@ export function useAssistantChat() {
         setStatus("idle");
       }
     },
-    [conversationId, status],
+    [completeMessage, conversationId, status],
   );
 
-  return { conversationId, messages, status, error, send, stop, newConversation, load };
+  return {
+    conversationId,
+    messages,
+    status,
+    error,
+    send,
+    stop,
+    newConversation,
+    load,
+    pendingAction,
+    confirmPending,
+    rejectPending,
+  };
 }

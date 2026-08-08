@@ -4,8 +4,22 @@
  */
 
 export interface AIMessage {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
+  toolCalls?: AIToolCall[];
+  toolResults?: AIToolResult[];
+}
+
+export interface AIToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface AIToolResult {
+  callId: string;
+  name: string;
+  result: unknown;
 }
 
 export interface AIGenerateOptions {
@@ -33,10 +47,16 @@ export interface AIProvider {
   status(): Promise<AIProviderStatus>;
   testConnection(): Promise<{ ok: boolean; message: string }>;
   generate(messages: AIMessage[], options?: AIGenerateOptions): Promise<string>;
+  generateWithTools(messages: AIMessage[], tools: AITool[]): Promise<AICompletion>;
   stream(
     messages: AIMessage[],
     options?: AIGenerateOptions,
   ): AsyncGenerator<AIStreamChunk, void, unknown>;
+}
+
+export interface AICompletion {
+  text: string;
+  toolCalls: AIToolCall[];
 }
 
 export class AINotConfiguredError extends Error {
@@ -56,5 +76,6 @@ export interface AITool<Args = unknown, Result = unknown> {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  mutates?: boolean;
   execute(args: Args): Promise<Result>;
 }

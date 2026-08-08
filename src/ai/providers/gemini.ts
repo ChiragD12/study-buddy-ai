@@ -1,8 +1,10 @@
 import {
   AINotConfiguredError,
   type AIGenerateOptions,
+  type AICompletion,
   type AIMessage,
   type AIProvider,
+  type AITool,
 } from "@/ai/types";
 import { getGeminiKey } from "@/ai/providers/keyStore";
 
@@ -10,6 +12,8 @@ const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 interface GeminiPart {
   text?: string;
+  functionCall?: { id?: string; name?: string; args?: Record<string, unknown> };
+  functionResponse?: { id?: string; name?: string; response?: unknown };
 }
 interface GeminiCandidate {
   content?: { parts?: GeminiPart[] };
@@ -24,7 +28,19 @@ function toContents(messages: AIMessage[]) {
     .filter((message) => message.role !== "system")
     .map((message) => ({
       role: message.role === "assistant" ? "model" : "user",
-      parts: [{ text: message.content }],
+      parts: message.toolCalls?.length
+        ? message.toolCalls.map((call) => ({
+            functionCall: { id: call.id, name: call.name, args: call.args },
+          }))
+        : message.toolResults?.length
+          ? message.toolResults.map((result) => ({
+              functionResponse: {
+                id: result.callId,
+                name: result.name,
+                response: { result: result.result },
+              },
+            }))
+          : [{ text: message.content }],
     }));
 }
 
@@ -33,6 +49,17 @@ function extractText(payload: GeminiResponse): string {
     .flatMap((candidate) => candidate.content?.parts ?? [])
     .map((part) => part.text ?? "")
     .join("");
+}
+
+function extractToolCalls(payload: GeminiResponse) {
+  return (payload.candidates ?? []).flatMap((candidate) =>
+    (candidate.content?.parts ?? []).flatMap((part, index) => {
+      const call = part.functionCall;
+      return call?.name
+        ? [{ id: call.id ?? `${call.name}-${index}`, name: call.name, args: call.args ?? {} }]
+        : [];
+    }),
+  );
 }
 
 function safeErrorMessage(message: string): string {
@@ -71,6 +98,23 @@ export function createGeminiProvider(model: string): AIProvider {
           ? { responseMimeType: "application/json", responseSchema: options.responseSchema }
           : {}),
       },
+    };
+  }
+
+  function buildToolBody(messages: AIMessage[], tools: AITool[]) {
+    const system = messages.find((m) => m.role === "system")?.content;
+    return {
+      contents: toContents(messages),
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      tools: [
+        {
+          functionDeclarations: tools.map(({ name, description, parameters }) => ({
+            name,
+            description,
+            parameters,
+          })),
+        },
+      ],
     };
   }
 
@@ -119,6 +163,15 @@ export function createGeminiProvider(model: string): AIProvider {
         );
       }
       return extractText(payload);
+    },
+    async generateWithTools(messages, tools): Promise<AICompletion> {
+      const response = await call("generateContent", buildToolBody(messages, tools));
+      const payload = (await response.json()) as GeminiResponse;
+      if (!response.ok)
+        throw new Error(
+          safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
+        );
+      return { text: extractText(payload), toolCalls: extractToolCalls(payload) };
     },
     async *stream(messages, options) {
       const response = await call(

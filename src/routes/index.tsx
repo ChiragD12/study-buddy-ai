@@ -40,7 +40,8 @@ const SUGGESTIONS = [
 ];
 
 function AssistantPage() {
-  const { messages, status, error, send, stop } = useAssistantChat();
+  const { messages, status, error, send, stop, pendingAction, confirmPending, rejectPending } =
+    useAssistantChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasMessages = messages.length > 0;
   const hello = useMemo(() => greeting(), []);
@@ -78,6 +79,27 @@ function AssistantPage() {
             <p role="status" className="mt-4 text-sm text-destructive">
               {error}
             </p>
+          ) : null}
+          {pendingAction ? (
+            <div className="surface-card mt-4 flex flex-wrap items-center gap-2 p-3 text-sm">
+              <span className="flex-1">
+                Confirm local action: {pendingAction.calls.map((call) => call.name).join(", ")}
+              </span>
+              <button
+                type="button"
+                className="tap-target rounded-xl bg-primary px-3 py-2 text-primary-foreground"
+                onClick={() => void confirmPending()}
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                className="tap-target rounded-xl border px-3 py-2"
+                onClick={() => void rejectPending()}
+              >
+                Cancel
+              </button>
+            </div>
           ) : null}
         </div>
       </div>
