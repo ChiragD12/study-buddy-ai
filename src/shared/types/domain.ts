@@ -157,7 +157,10 @@ export interface StudyPlanEntry {
   examId?: ID | null | undefined;
   date: ISODate;
   title: string;
+  description?: string | undefined;
+  priority: ExamPriority;
   done: boolean;
+  completedAt?: ISODate | null | undefined;
   minutes?: number | undefined;
   createdAt: ISODate;
   updatedAt: ISODate;

@@ -1,4 +1,5 @@
 import { getDb } from "@/data/db/db";
+import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
 import { newId, now, timestamps } from "@/data/repositories/util";
 import type { Exam, ID } from "@/shared/types/domain";
 
@@ -43,6 +44,7 @@ export const examRepository: ExamRepository = {
     const db = getDb();
     await db.transaction("rw", db.exams, db.settings, async () => {
       await db.exams.delete(id);
+      await studyPlanRepository.removeForExam(id);
       const settings = await db.settings.get("app");
       if (settings?.activeExamId === id) {
         await db.settings.update("app", { activeExamId: null, updatedAt: now() });

@@ -70,17 +70,33 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
 
 export interface StudyPlanRepository {
   list(): Promise<StudyPlanEntry[]>;
+  get(id: ID): Promise<StudyPlanEntry | undefined>;
   create(
     input: Pick<StudyPlanEntry, "title" | "date"> & Partial<StudyPlanEntry>,
   ): Promise<StudyPlanEntry>;
+  update(id: ID, patch: Partial<StudyPlanEntry>): Promise<void>;
   toggleDone(id: ID): Promise<void>;
   remove(id: ID): Promise<void>;
+  removeForExam(examId: ID): Promise<void>;
 }
 
 export const studyPlanRepository: StudyPlanRepository = {
   async list() {
-    const entries = await getDb().studyPlan.toArray();
-    return entries.sort((a, b) => a.date.localeCompare(b.date));
+    const entries = (await getDb().studyPlan.toArray()).map((entry) => ({
+      ...entry,
+      priority: entry.priority ?? "medium",
+      completedAt: entry.completedAt ?? (entry.done ? entry.updatedAt : null),
+    }));
+    const priority = { high: 0, medium: 1, low: 2 };
+    return entries.sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        Number(a.done) - Number(b.done) ||
+        priority[a.priority ?? "medium"] - priority[b.priority ?? "medium"],
+    );
+  },
+  get(id) {
+    return getDb().studyPlan.get(id);
   },
   async create(input) {
     const entry: StudyPlanEntry = {
@@ -88,19 +104,33 @@ export const studyPlanRepository: StudyPlanRepository = {
       examId: input.examId ?? null,
       date: input.date,
       title: input.title,
+      description: input.description,
+      priority: input.priority ?? "medium",
       done: false,
+      completedAt: null,
       minutes: input.minutes,
       ...timestamps(),
     };
     await getDb().studyPlan.add(entry);
     return entry;
   },
+  async update(id, patch) {
+    await getDb().studyPlan.update(id, { ...patch, updatedAt: now() });
+  },
   async toggleDone(id) {
     const entry = await getDb().studyPlan.get(id);
     if (!entry) return;
-    await getDb().studyPlan.update(id, { done: !entry.done, updatedAt: now() });
+    const done = !entry.done;
+    await getDb().studyPlan.update(id, {
+      done,
+      completedAt: done ? now() : null,
+      updatedAt: now(),
+    });
   },
   async remove(id) {
     await getDb().studyPlan.delete(id);
+  },
+  async removeForExam(examId) {
+    await getDb().studyPlan.where("examId").equals(examId).delete();
   },
 };

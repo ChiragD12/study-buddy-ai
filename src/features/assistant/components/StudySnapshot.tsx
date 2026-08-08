@@ -37,6 +37,7 @@ export function StudySnapshot() {
       : undefined) ?? upcoming[0];
   const todayTasks = (plan ?? []).filter((entry) => entry.date.slice(0, 10) === today);
   const done = todayTasks.filter((entry) => entry.done).length;
+  const nextTask = (plan ?? []).find((entry) => !entry.done && entry.date.slice(0, 10) >= today);
 
   function dismiss() {
     sessionStorage.setItem(SESSION_KEY, "1");
@@ -85,10 +86,13 @@ export function StudySnapshot() {
           </dd>
         </div>
         <div className="rounded-2xl bg-surface-sunken px-3 py-2.5">
-          <dt className="text-xs text-muted-foreground">Other exams</dt>
-          <dd className="font-medium">{Math.max(upcoming.length - 1, 0)} upcoming</dd>
+          <dt className="text-xs text-muted-foreground">Remaining today</dt>
+          <dd className="font-medium">{Math.max(todayTasks.length - done, 0)}</dd>
         </div>
       </dl>
+      {nextTask ? (
+        <p className="mt-3 text-sm text-muted-foreground">Next: {nextTask.title}</p>
+      ) : null}
     </div>
   );
 }

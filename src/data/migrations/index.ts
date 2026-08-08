@@ -5,7 +5,7 @@ import { DEFAULT_GEMINI_MODEL, isGeminiModel } from "@/ai/providers/models";
  * Exported backup schema version. Bump whenever the shape of exported data
  * changes so importers can migrate older backups.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * All Dexie schema versions in order. Add a new `db.version(n).stores({...})`
@@ -61,6 +61,20 @@ export function applyMigrations(db: Dexie): void {
     currentAffairs:
       "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
     studyPlan: "id, examId, date, done",
+    settings: "id",
+  });
+  db.version(4).stores({
+    exams: "id, name, examDate, priority, updatedAt",
+    notes: "id, title, examId, subject, topic, verification, updatedAt, *tags",
+    writingPrompts: "id, track, format, examId, updatedAt",
+    writingAttempts: "id, promptId, createdAt, updatedAt",
+    vaultItems: "id, name, kind, favorite, examId, updatedAt, *tags",
+    vaultBlobs: "key",
+    conversations: "id, updatedAt",
+    messages: "id, conversationId, createdAt",
+    currentAffairs:
+      "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
+    studyPlan: "id, examId, date, priority, done, completedAt",
     settings: "id",
   });
 }
