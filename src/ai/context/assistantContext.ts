@@ -63,6 +63,13 @@ export function systemPrompt(context: AssistantContext): AIMessage {
       "Vault search/list tools return metadata only, never file contents. To answer questions " +
         "about what a specific Vault PDF or image actually says, first find it with a Vault " +
         "search/list/get tool, then call vaultReadContent with its id before answering.",
+      "When you're working with a note that contains checkable factual claims (dates, " +
+        "institutions, statistics, current office-holders, and similar), you can call " +
+        "notesVerify to check them against the web. Don't call it for notes that are opinion, " +
+        "mnemonics, or otherwise not fact-checkable, and don't re-verify a note on every mention " +
+        "— it already skips unchanged notes on its own. Only mention a specific correction to the " +
+        "user if notesVerify actually returned it; never assert a note was checked without calling " +
+        "the tool.",
       "Be concise, accurate and practical. Say plainly when you are unsure.",
     ].join(" "),
   };

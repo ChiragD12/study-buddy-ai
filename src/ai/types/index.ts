@@ -74,6 +74,12 @@ export interface AIProviderStatus {
   message?: string;
 }
 
+export interface AIGroundedResult {
+  text: string;
+  /** Source URLs/titles the model actually cited, if the provider exposes them. Empty when unavailable. */
+  sources: { uri: string; title?: string }[];
+}
+
 export interface AIProvider {
   readonly id: string;
   readonly label: string;
@@ -85,6 +91,16 @@ export interface AIProvider {
     messages: AIMessage[],
     options?: AIGenerateOptions,
   ): AsyncGenerator<AIStreamChunk, void, unknown>;
+  /**
+   * Generate text grounded in a live web search, when the provider supports
+   * it (Gemini's built-in Google Search grounding tool). This is the only
+   * sanctioned way for the app to check a claim against "wider internet
+   * information" — there is no separate web-search backend/API. Optional:
+   * callers must check for its presence and fail gracefully when absent.
+   * Cannot be combined with generateWithTools' function-calling tools in
+   * the same request (the underlying API treats them as alternatives).
+   */
+  groundedGenerate?(prompt: string, options?: { system?: string }): Promise<AIGroundedResult>;
 }
 
 export interface AICompletion {

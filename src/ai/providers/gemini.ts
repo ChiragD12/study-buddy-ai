@@ -2,6 +2,7 @@ import {
   AINotConfiguredError,
   type AIGenerateOptions,
   type AICompletion,
+  type AIGroundedResult,
   type AIMessage,
   type AIProvider,
   type AITool,
@@ -22,8 +23,12 @@ interface GeminiPart {
    */
   thoughtSignature?: string;
 }
+interface GeminiGroundingChunk {
+  web?: { uri?: string; title?: string };
+}
 interface GeminiCandidate {
   content?: { parts?: GeminiPart[] };
+  groundingMetadata?: { groundingChunks?: GeminiGroundingChunk[] };
 }
 interface GeminiResponse {
   candidates?: GeminiCandidate[];
@@ -102,6 +107,20 @@ function extractText(payload: GeminiResponse): string {
     .flatMap((candidate) => candidate.content?.parts ?? [])
     .map((part) => part.text ?? "")
     .join("");
+}
+
+function extractGroundingSources(payload: GeminiResponse): { uri: string; title?: string }[] {
+  const seen = new Set<string>();
+  const sources: { uri: string; title?: string }[] = [];
+  for (const candidate of payload.candidates ?? []) {
+    for (const chunk of candidate.groundingMetadata?.groundingChunks ?? []) {
+      const uri = chunk.web?.uri;
+      if (!uri || seen.has(uri)) continue;
+      seen.add(uri);
+      sources.push({ uri, ...(chunk.web?.title ? { title: chunk.web.title } : {}) });
+    }
+  }
+  return sources;
 }
 
 function extractToolCalls(payload: GeminiResponse) {
@@ -267,6 +286,24 @@ export function createGeminiProvider(model: string): AIProvider {
           ? { providerRawParts: payload.candidates?.[0]?.content?.parts ?? [] }
           : {}),
       };
+    },
+    async groundedGenerate(prompt, options): Promise<AIGroundedResult> {
+      const body = {
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        ...(options?.system ? { systemInstruction: { parts: [{ text: options.system }] } } : {}),
+        // Google Search grounding — a built-in Gemini capability, not a
+        // second search backend. Cannot be combined with function-calling
+        // `tools` in the same request, so this is always its own call.
+        tools: [{ google_search: {} }],
+      };
+      const response = await call("generateContent", body);
+      const payload = (await response.json()) as GeminiResponse;
+      if (!response.ok) {
+        throw new Error(
+          safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
+        );
+      }
+      return { text: extractText(payload), sources: extractGroundingSources(payload) };
     },
     async *stream(messages, options) {
       const response = await call(

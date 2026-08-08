@@ -1,4 +1,5 @@
 import { daysUntil } from "@/ai/context/assistantContext";
+import { verifyNote } from "@/ai/context/noteVerification";
 import { getVaultContent, VaultContentUnavailableError } from "@/ai/context/vaultContent";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
@@ -379,6 +380,30 @@ const tools: AITool[] = [
       if (!(await noteRepository.get(noteId))) return { error: "I couldn't find that note." };
       await noteRepository.remove(noteId);
       return { deleted: true, noteId };
+    },
+  },
+  {
+    name: "notesVerify",
+    description:
+      "Check a note's factual claims (dates, institutions, statistics, current office-holders, " +
+      "etc) against current web sources. Only worth calling for notes with checkable factual " +
+      "content — skip opinions, mnemonics or purely interpretive notes. Safe to call again on an " +
+      "unchanged note: it reuses the last result instead of re-searching. Never rewrites the " +
+      "note's own content; findings are returned separately for you to relay to the user.",
+    mutates: true,
+    parameters: object({ noteId: string("Note id") }, ["noteId"]),
+    async execute(args: { noteId: string }) {
+      const noteId = requiredString(args, "noteId", "Note id");
+      try {
+        const result = await verifyNote(noteId);
+        return {
+          status: result.status,
+          findings: result.findings,
+          reused: result.reused,
+        };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : "Verification failed." };
+      }
     },
   },
   {

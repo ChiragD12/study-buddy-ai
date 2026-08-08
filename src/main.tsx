@@ -7,12 +7,6 @@ import { getRouter } from "./router";
 
 const router = getRouter();
 
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
-
 const container = document.getElementById("root");
 if (!container) throw new Error("Application root element is missing.");
 

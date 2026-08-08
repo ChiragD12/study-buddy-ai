@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { CheckCircle2, Loader2, ShieldAlert, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { getGeminiKey } from "@/ai/providers/keyStore";
+import { NoteVerificationUnavailableError, verifyNote } from "@/ai/context/noteVerification";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +45,7 @@ function NoteDetailPage() {
     verification: "unverified" as NoteVerification,
   });
   const [loaded, setLoaded] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     if (!note || loaded) return;
@@ -109,6 +112,32 @@ function NoteDetailPage() {
   }
 
   const providerConfigured = Boolean(getGeminiKey());
+
+  async function runVerification() {
+    setVerifying(true);
+    try {
+      const result = await verifyNote(noteId, { force: true });
+      if (result.status === "flagged") {
+        toast.warning(
+          `Found ${result.findings.length} claim${result.findings.length === 1 ? "" : "s"} to review.`,
+        );
+      } else {
+        toast.success("No factual issues found.");
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof NoteVerificationUnavailableError
+          ? error.message
+          : "Verification failed. Try again in a moment.",
+      );
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  const lastEntry = note.verificationHistory.at(-1);
+  const latestFindings =
+    note.verification === "flagged" && lastEntry?.findings?.length ? lastEntry.findings : undefined;
 
   return (
     <PageContainer>
@@ -212,12 +241,65 @@ function NoteDetailPage() {
           </div>
         </div>
 
-        <NotImplementedNote>
-          Verification status: <strong>{note.verification}</strong>.{" "}
-          {providerConfigured
-            ? "AI verification is not implemented yet — the data model and history are ready for it."
-            : "Add a Gemini key in Settings to enable verification once it ships."}
-        </NotImplementedNote>
+        {providerConfigured ? (
+          <div className="space-y-3 rounded-2xl border px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                Verification status: <strong className="text-foreground">{note.verification}</strong>
+                {lastEntry?.summary && note.verification !== "pending" ? ` — ${lastEntry.summary}` : ""}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="tap-target"
+                disabled={verifying}
+                onClick={() => void runVerification()}
+              >
+                {verifying ? (
+                  <Loader2 className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Sparkles aria-hidden="true" />
+                )}
+                Verify facts
+              </Button>
+            </div>
+
+            {latestFindings ? (
+              <ul className="space-y-2">
+                {latestFindings.map((finding, index) => (
+                  <li
+                    key={index}
+                    className="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm"
+                  >
+                    <ShieldAlert
+                      className="mt-0.5 shrink-0 text-destructive"
+                      size={16}
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-muted-foreground">
+                        “{finding.claim}” —{" "}
+                        <span className="font-medium text-foreground">
+                          {finding.status === "incorrect" ? "Incorrect" : "Outdated"}
+                        </span>
+                      </p>
+                      <p>{finding.correction}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : note.verification === "verified" ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CheckCircle2 size={16} className="shrink-0" aria-hidden="true" />
+                No factual issues found.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <NotImplementedNote>
+            Add a Gemini key in Settings to enable automatic fact verification for notes.
+          </NotImplementedNote>
+        )}
 
         <div className="flex flex-wrap gap-2">
           <Button className="tap-target" onClick={() => void save()}>

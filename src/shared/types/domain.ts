@@ -23,11 +23,36 @@ export interface Exam {
 export type NoteVerification = "unverified" | "pending" | "verified" | "flagged";
 export type NoteConfidence = "low" | "medium" | "high";
 
+/** Only ever produced for a claim the verifier is confident is wrong or stale. */
+export type NoteVerificationFindingStatus = "incorrect" | "outdated";
+
+export interface NoteVerificationFinding {
+  /** Short excerpt of the user's original wording the finding applies to. */
+  claim: string;
+  status: NoteVerificationFindingStatus;
+  /** Compact correction, e.g. "India became a republic on 26 January 1950." */
+  correction: string;
+}
+
 export interface NoteVerificationEntry {
   at: ISODate;
   status: NoteVerification;
   summary?: string | undefined;
   provider?: string | undefined;
+  /**
+   * Per-claim results for an automatic factual-verification run (see
+   * ai/context/noteVerification.ts). Only "incorrect"/"outdated" claims are
+   * ever recorded — a clean note gets an entry with no findings, never a
+   * "this looks correct" annotation. Absent for manual status changes and
+   * for entries written before this field existed.
+   */
+  findings?: NoteVerificationFinding[] | undefined;
+  /**
+   * Hash of the exact title+content this entry verified, so a later run can
+   * tell the note hasn't changed and skip re-verifying it. Absent for
+   * manual status changes.
+   */
+  contentHash?: string | undefined;
 }
 
 export interface Note {
