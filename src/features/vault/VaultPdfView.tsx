@@ -17,8 +17,7 @@ import { toast } from "sonner";
 import { vaultRepository } from "@/data/repositories/vault.repository";
 import { vaultPdfDocRepository } from "@/data/repositories/vaultPdfDoc.repository";
 import { generatePdfEdit } from "@/features/vault/pdfEditAssistant";
-import { renderPdfDoc, titleFromFileName, type PdfDocSpec } from "@/features/vault/pdfDoc";
-import { extractPdfDoc } from "@/features/vault/pdfExtract";
+import { renderPdfDoc, type PdfDocSpec } from "@/features/vault/pdfDoc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,28 +28,36 @@ import type { VaultItem } from "@/shared/types/domain";
 
 type GenerateStatus = "idle" | "generating" | "done" | "error";
 
+const NOT_EDITABLE_MESSAGE =
+  "This PDF was not generated from editable app content, so AI editing isn't available for it.";
+
+/** True only for PDFs the app itself generated and can regenerate from a stored source. */
+function isEditablePdf(item: VaultItem): boolean {
+  return item.sourceType === "generated";
+}
+
 /**
  * Loads the editable representation for the selected Vault PDF.
  *
- * If our own vaultPdfDocs record already exists (created by this app, or by
- * an earlier edit of this same item), that's the authoritative source — we
- * never re-parse a PDF we generated ourselves. Otherwise, for a pre-existing
- * uploaded PDF, this reads the PDF's REAL text via pdf.js (see
- * pdfExtract.ts) and caches the result so it isn't re-parsed on every edit.
- * If the PDF has no extractable text (e.g. it's scanned/image-only), this
- * throws PdfNotExtractableError instead of fabricating placeholder content.
+ * Only ever reads the app-owned structured source (`vaultPdfDocs`) — it
+ * never falls back to extracting text from the PDF's own bytes. A PDF only
+ * has a row here if it was rendered by this app (Notes → PDF generation, or
+ * a previous AI edit) with `sourceType === "generated"`; for anything else
+ * (an image converted to PDF, or an arbitrary/scanned upload) there is
+ * nothing to load, and this returns `undefined` rather than fabricating a
+ * placeholder document. Callers gate on `isEditablePdf` before calling this
+ * so `undefined` here should only happen defensively (e.g. a "generated"
+ * item whose doc row was somehow lost).
  */
-async function loadOrExtractSpec(item: VaultItem): Promise<PdfDocSpec> {
+async function loadEditableSpec(item: VaultItem): Promise<PdfDocSpec | undefined> {
   const existing = await vaultPdfDocRepository.get(item.id);
-  if (existing) return { title: existing.title, sections: existing.sections };
-
-  const blob = await vaultRepository.getBlob(item.id);
-  if (!blob) throw new Error("File data is missing for this item.");
-  const extracted = await extractPdfDoc(blob, titleFromFileName(item.name));
-  // Cache the extraction immediately so a retry (or the very first
-  // successful edit) doesn't need to re-parse the original PDF.
-  await vaultPdfDocRepository.put(item.id, extracted.title, extracted.sections);
-  return extracted;
+  if (!existing) return undefined;
+  return {
+    title: existing.title,
+    ...(existing.subtitle ? { subtitle: existing.subtitle } : {}),
+    ...(existing.columns ? { columns: existing.columns } : {}),
+    sections: existing.sections,
+  };
 }
 
 export function VaultPdfView({ title, description }: { title: string; description: string }) {
@@ -130,6 +137,11 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
 
   async function generateChanges() {
     if (!selected) return;
+    if (!isEditablePdf(selected)) {
+      setStatus("error");
+      setStatusMessage(NOT_EDITABLE_MESSAGE);
+      return;
+    }
     if (!instruction.trim()) {
       toast.error("Enter an instruction first.");
       return;
@@ -137,7 +149,12 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
     setStatus("generating");
     setStatusMessage("");
     try {
-      const current = await loadOrExtractSpec(selected);
+      const current = await loadEditableSpec(selected);
+      if (!current) {
+        setStatus("error");
+        setStatusMessage(NOT_EDITABLE_MESSAGE);
+        return;
+      }
       const result = await generatePdfEdit(current, instruction);
       if (!result.ok || !result.spec) {
         setStatus("error");
@@ -146,15 +163,17 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
       }
       const blob = await renderPdfDoc(result.spec);
       await vaultRepository.replaceBlob(selected.id, blob, { mimeType: "application/pdf" });
-      await vaultPdfDocRepository.put(selected.id, result.spec.title, result.spec.sections);
+      await vaultPdfDocRepository.put(selected.id, {
+        title: result.spec.title,
+        subtitle: result.spec.subtitle,
+        columns: result.spec.columns,
+        sections: result.spec.sections,
+      });
       setStatus("done");
       setStatusMessage(result.message);
       setInstruction("");
     } catch (error) {
       setStatus("error");
-      // PdfNotExtractableError extends Error, so its message is surfaced
-      // the same way — the point is it's a clear, specific explanation
-      // rather than the PDF being silently replaced.
       setStatusMessage(error instanceof Error ? error.message : "Unable to generate changes.");
     }
   }
@@ -162,7 +181,9 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
   async function handleFiles(fileList: FileList | null) {
     if (!fileList?.length) return;
     for (const file of Array.from(fileList)) {
-      await vaultRepository.addFile(file);
+      // Files added here are arbitrary uploads, not app-generated content —
+      // never eligible for AI editing (see isEditablePdf).
+      await vaultRepository.addFile(file, { sourceType: "external" });
     }
     toast.success(`Saved ${fileList.length} file(s) to the vault`);
   }
@@ -318,45 +339,59 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
 
           {editing ? (
             <div className="space-y-3 border-t pt-4">
-              <label htmlFor="pdf-edit-instruction" className="text-sm font-medium">
-                Describe the change
-              </label>
-              <Textarea
-                id="pdf-edit-instruction"
-                value={instruction}
-                onChange={(event) => setInstruction(event.target.value)}
-                placeholder="e.g. Make the title larger and add a section about Fundamental Rights."
-                rows={4}
-                disabled={status === "generating"}
-              />
-              <div className="flex items-center gap-3">
-                <Button
-                  className="tap-target"
-                  onClick={() => void generateChanges()}
-                  disabled={status === "generating" || !instruction.trim()}
-                >
-                  {status === "generating" ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Generating…
-                    </>
-                  ) : (
-                    "Generate changes"
-                  )}
-                </Button>
-              </div>
+              {isEditablePdf(selected) ? (
+                <>
+                  <label htmlFor="pdf-edit-instruction" className="text-sm font-medium">
+                    Describe the change
+                  </label>
+                  <Textarea
+                    id="pdf-edit-instruction"
+                    value={instruction}
+                    onChange={(event) => setInstruction(event.target.value)}
+                    placeholder="e.g. Make the title larger and add a section about Fundamental Rights."
+                    rows={4}
+                    disabled={status === "generating"}
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      className="tap-target"
+                      onClick={() => void generateChanges()}
+                      disabled={status === "generating" || !instruction.trim()}
+                    >
+                      {status === "generating" ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Generating…
+                        </>
+                      ) : (
+                        "Generate changes"
+                      )}
+                    </Button>
+                  </div>
 
-              {status === "done" ? (
-                <p className="flex items-start gap-2 text-sm text-green-700 dark:text-green-500">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                  <span>{statusMessage}</span>
-                </p>
-              ) : null}
-              {status === "error" ? (
-                <p className="flex items-start gap-2 text-sm text-destructive">
+                  {status === "done" ? (
+                    <p className="flex items-start gap-2 text-sm text-green-700 dark:text-green-500">
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                      <span>{statusMessage}</span>
+                    </p>
+                  ) : null}
+                  {status === "error" ? (
+                    <p className="flex items-start gap-2 text-sm text-destructive">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                      <span>{statusMessage}</span>
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                // sourceType is "image" / "external" / undefined — no
+                // app-owned editable source exists for this PDF, so there's
+                // nothing for the AI edit flow to read or regenerate from.
+                // Explain that plainly instead of showing an instruction box
+                // that can only ever fail.
+                <p className="flex items-start gap-2 text-sm text-muted-foreground">
                   <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                  <span>{statusMessage}</span>
+                  <span>{NOT_EDITABLE_MESSAGE}</span>
                 </p>
-              ) : null}
+              )}
             </div>
           ) : null}
         </div>

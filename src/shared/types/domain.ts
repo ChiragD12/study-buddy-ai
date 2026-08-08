@@ -97,6 +97,22 @@ export interface WritingAttempt {
 
 export type VaultKind = "pdf" | "image" | "text" | "note-export" | "other";
 
+/**
+ * How a Vault PDF's bytes came to exist. Only meaningful for
+ * `kind === "pdf"`; this is what the AI PDF editor (see
+ * features/vault/VaultPdfView.tsx) uses to decide whether an
+ * application-owned, re-editable source exists for a given PDF:
+ *  - "generated": rendered by this app itself from structured content it
+ *    owns (e.g. Notes content, or the result of a previous AI edit) via
+ *    features/vault/pdfDoc.ts. The one kind the AI editor can regenerate.
+ *  - "image": produced by converting an uploaded image into a PDF wrapper.
+ *    Viewable/downloadable, but there's no editable text source — never
+ *    semantically editable.
+ *  - "external": an arbitrary uploaded PDF (or a scan), whose bytes were
+ *    never produced by this app. Viewable/downloadable, never editable.
+ */
+export type VaultPdfSourceType = "generated" | "image" | "external";
+
 export interface VaultItem {
   id: ID;
   name: string;
@@ -108,6 +124,12 @@ export interface VaultItem {
   favorite: boolean;
   /** Key into the blobs table; absent for metadata-only records. */
   blobKey?: string | undefined;
+  /**
+   * Provenance for `kind === "pdf"` items — see `VaultPdfSourceType`.
+   * Undefined for non-PDF items, and for PDFs that predate this field
+   * (treated the same as "external": not assumed editable).
+   */
+  sourceType?: VaultPdfSourceType | undefined;
   createdAt: ISODate;
   updatedAt: ISODate;
 }
@@ -120,13 +142,15 @@ export interface VaultBlob {
 /**
  * Editable structured representation of a Vault PDF's text content.
  *
- * For a PDF this app generated itself, this is the authoritative source —
- * it's written directly, never re-parsed from the rendered PDF bytes. For a
- * pre-existing uploaded PDF, this is created by extracting the PDF's real
- * text layer (see features/vault/pdfExtract.ts) the first time it's edited,
- * so edits act on the document's actual content, not a placeholder. Every
+ * Only exists for PDFs the app generated itself (`VaultItem.sourceType ===
+ * "generated"`) — it is written directly by whatever produced the PDF
+ * (Notes → PDF generation, or a previous AI edit) and is always the
+ * authoritative source, never re-derived from the rendered PDF bytes. Every
  * subsequent AI edit reads and rewrites this record, then a real PDF is
- * regenerated from it. One record per Vault PDF item (keyed by vaultItemId).
+ * regenerated from it via features/vault/pdfDoc.ts. One record per Vault
+ * PDF item (keyed by vaultItemId). PDFs without a matching row here (image
+ * conversions, arbitrary uploads) have no editable source and the AI editor
+ * does not attempt to fabricate one for them.
  */
 export interface VaultPdfSection {
   heading?: string;
@@ -138,6 +162,10 @@ export interface VaultPdfDoc {
   /** Primary key — the owning VaultItem's id. One doc per Vault PDF item. */
   vaultItemId: ID;
   title: string;
+  /** Optional secondary line under the title (e.g. the source template's label, or exam context). */
+  subtitle?: string | undefined;
+  /** Layout hint carried through from generation; not yet rendered by either the print/HTML path or the PDF renderer. */
+  columns?: 1 | 2 | undefined;
   sections: VaultPdfSection[];
   updatedAt: ISODate;
 }

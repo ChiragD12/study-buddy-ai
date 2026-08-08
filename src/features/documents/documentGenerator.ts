@@ -4,20 +4,25 @@
  * The model (eventually) produces structured CONTENT; the app renders the
  * actual artifact on-device. No external document SaaS, and never ask a model
  * for binary output.
+ *
+ * `DocumentSection`/`DocumentSpec` intentionally reuse
+ * `VaultPdfSection`/the `VaultPdfDoc` shape from shared/types/domain.ts —
+ * that's the same structured document representation the Vault → PDFs AI
+ * editor reads and rewrites (see features/vault/pdfDoc.ts), so a document
+ * built here can be saved straight into the Vault and edited later without
+ * translating through a second, narrower copy of the same shape.
  */
+import type { VaultPdfSection } from "@/shared/types/domain";
 
 export type DocumentTemplate = "revision-sheet" | "printable-notes" | "writing-exercise";
 
-export interface DocumentSection {
-  heading?: string;
-  paragraphs?: string[];
-  bullets?: string[];
-}
+export type DocumentSection = VaultPdfSection;
 
 export interface DocumentSpec {
   title: string;
   subtitle?: string;
   template: DocumentTemplate;
+  /** Layout hint; not yet rendered by either the print/HTML path or the PDF renderer — carried through, not dropped. */
   columns?: 1 | 2;
   sections: DocumentSection[];
 }

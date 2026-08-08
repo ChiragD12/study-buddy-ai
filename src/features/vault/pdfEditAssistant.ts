@@ -24,6 +24,10 @@ const RESPONSE_SCHEMA = {
         "One short sentence: what changed if applied is true, or why it couldn't be applied if false.",
     },
     title: { type: "string" },
+    subtitle: {
+      type: "string",
+      description: "Optional secondary line under the title. Keep as-is unless the instruction asks to change it.",
+    },
     sections: {
       type: "array",
       items: {
@@ -43,6 +47,7 @@ interface RawResponse {
   applied?: unknown;
   note?: unknown;
   title?: unknown;
+  subtitle?: unknown;
   sections?: unknown;
 }
 
@@ -96,10 +101,11 @@ export async function generatePdfEdit(
   if (!provider) return { ok: false, message: new AINotConfiguredError().message };
 
   const system = [
-    "You edit the text content of a document stored as structured JSON: a title",
-    "and an ordered list of sections, each with an optional heading, paragraphs,",
-    "and bullets. You are given the CURRENT document and ONE instruction.",
-    "Apply only what the instruction asks; leave everything else exactly as-is.",
+    "You edit the text content of a document stored as structured JSON: a title,",
+    "an optional subtitle, and an ordered list of sections, each with an optional",
+    "heading, paragraphs, and bullets. You are given the CURRENT document and ONE",
+    "instruction. Apply only what the instruction asks; leave everything else",
+    "exactly as-is, including the subtitle if the instruction doesn't mention it.",
     "Always return the COMPLETE updated document (not just the changed part).",
     "If the instruction is unclear, unsafe, or cannot be accurately applied to",
     "this text-only structure (e.g. it asks for something outside plain",
@@ -146,10 +152,23 @@ export async function generatePdfEdit(
 
   const title =
     typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : current.title;
+  const subtitle =
+    typeof parsed.subtitle === "string" && parsed.subtitle.trim()
+      ? parsed.subtitle.trim()
+      : current.subtitle;
   const sections = coerceSections(parsed.sections);
   if (!sections.length) {
     return { ok: false, message: "The assistant returned an empty document." };
   }
 
-  return { ok: true, spec: { title, sections }, message: note };
+  return {
+    ok: true,
+    spec: {
+      title,
+      ...(subtitle ? { subtitle } : {}),
+      ...(current.columns ? { columns: current.columns } : {}),
+      sections,
+    },
+    message: note,
+  };
 }

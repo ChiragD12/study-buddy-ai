@@ -70,6 +70,10 @@ export const vaultRepository: VaultRepository = {
       examId: meta?.examId ?? null,
       favorite: meta?.favorite ?? false,
       blobKey: newId(),
+      // Only meaningful for kind === "pdf" (see VaultPdfSourceType); left
+      // undefined for everything else, and for PDFs whose caller doesn't
+      // specify it (treated the same as "external" — never assumed editable).
+      sourceType: meta?.sourceType,
       ...timestamps(),
     };
     await getDb().transaction("rw", getDb().vaultItems, getDb().vaultBlobs, async () => {

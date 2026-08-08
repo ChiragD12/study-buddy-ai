@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Download, FileText, Printer, X } from "lucide-react";
+import { Archive, Download, FileText, Loader2, Printer, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -10,9 +10,12 @@ import {
   type DocumentTemplate,
   type GeneratedDocument,
 } from "@/features/documents/documentGenerator";
+import { renderPdfDoc } from "@/features/vault/pdfDoc";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { writingRepository } from "@/data/repositories/writing.repository";
+import { vaultRepository } from "@/data/repositories/vault.repository";
+import { vaultPdfDocRepository } from "@/data/repositories/vaultPdfDoc.repository";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +61,13 @@ function DocumentsPage() {
   const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([]);
   const [document, setDocument] = useState<GeneratedDocument | null>(null);
+  // The structured spec behind the generated `document` above — kept
+  // separately so "Save to Vault" can hand the actual source (not the
+  // rendered HTML) to the PDF renderer and the AI editor, the same source
+  // this document was built from.
+  const [spec, setSpec] = useState<DocumentSpec | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [savingToVault, setSavingToVault] = useState(false);
   const available = exams !== undefined && notes !== undefined && prompts !== undefined;
 
   useEffect(() => {
@@ -105,14 +114,16 @@ function DocumentsPage() {
     }
     try {
       const subtitle = TEMPLATES.find((item) => item.value === template)?.label;
-      const result = await a4PdfGenerator.generate({
+      const nextSpec: DocumentSpec = {
         title: title.trim(),
         template,
         sections,
         ...(subtitle ? { subtitle } : {}),
-      });
+      };
+      const result = await a4PdfGenerator.generate(nextSpec);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setDocument(result);
+      setSpec(nextSpec);
       setPreviewUrl(URL.createObjectURL(result.blob));
       toast.success("Document generated");
     } catch (error) {
@@ -128,6 +139,50 @@ function DocumentsPage() {
     anchor.download = document.filename;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Renders the current spec into a real PDF (features/vault/pdfDoc.ts —
+   * same pdf-lib + embedded-Unicode-font renderer the Vault → PDFs AI
+   * editor regenerates from) and saves it into the Vault as a
+   * `sourceType: "generated"` item, with the structured spec itself stored
+   * alongside it. This is what makes a document built here editable from
+   * Vault → PDFs afterwards — without it, `VaultPdfDoc` rows never get
+   * created and the AI editor has nothing to open.
+   */
+  async function saveToVault() {
+    if (!spec) return;
+    setSavingToVault(true);
+    try {
+      const blob = await renderPdfDoc({
+        title: spec.title,
+        ...(spec.subtitle ? { subtitle: spec.subtitle } : {}),
+        ...(spec.columns ? { columns: spec.columns } : {}),
+        sections: spec.sections,
+      });
+      const filename = `${
+        spec.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "study-document"
+      }.pdf`;
+      const item = await vaultRepository.addBlob(filename, blob, {
+        kind: "pdf",
+        mimeType: "application/pdf",
+        sourceType: "generated",
+      });
+      await vaultPdfDocRepository.put(item.id, {
+        title: spec.title,
+        subtitle: spec.subtitle,
+        columns: spec.columns,
+        sections: spec.sections,
+      });
+      toast.success("Saved to Vault — edit it from Vault → PDFs.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to save this document to the Vault.");
+    } finally {
+      setSavingToVault(false);
+    }
   }
 
   return (
