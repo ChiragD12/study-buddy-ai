@@ -447,7 +447,10 @@ const tools: AITool[] = [
   },
   {
     name: "vaultSave",
-    description: "Save supplied text as a local Vault text file.",
+    description:
+      "Save supplied text as a local Vault text file. On success, returns " +
+      "{ saved: 1, results: [item] }; the saved count is always 1 for this tool " +
+      "(it saves exactly one file per call). On failure, returns { saved: 0, error }.",
     mutates: true,
     parameters: object(
       {
@@ -460,7 +463,7 @@ const tools: AITool[] = [
     ),
     async execute(args: ToolArgs) {
       if (typeof args.name !== "string" || typeof args.content !== "string")
-        return { error: "A file name and text content are required." };
+        return { saved: 0, error: "A file name and text content are required." };
       const item = await vaultRepository.addBlob(
         args.name,
         new Blob([args.content], { type: "text/plain" }),
@@ -470,7 +473,12 @@ const tools: AITool[] = [
           examId: typeof args.examId === "string" ? args.examId : null,
         },
       );
-      return { item: { id: item.id, name: item.name, kind: item.kind } };
+      // Mirror the { results: [...] } shape every other vault tool returns
+      // (see vaultResults() above) so the model has one consistent, countable
+      // convention to read from instead of inferring a count from a bare
+      // { item } object — that mismatch was the source of the tool reporting
+      // "Saved 0 file(s)" even when the save succeeded.
+      return { saved: 1, results: [{ id: item.id, name: item.name, kind: item.kind }] };
     },
   },
   {

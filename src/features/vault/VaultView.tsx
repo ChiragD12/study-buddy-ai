@@ -17,6 +17,44 @@ interface VaultViewProps {
   favoritesOnly?: boolean;
 }
 
+/**
+ * Lazily loads the stored Blob for an image Vault item and renders it as a
+ * thumbnail. Uses the same vaultRepository.getBlob() path the full-size
+ * preview already relies on, so it needs no new Vault architecture — just a
+ * per-item object URL with proper cleanup so we don't leak one per item.
+ */
+function VaultThumbnail({ item }: { item: VaultItem }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item.kind !== "image") return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setUrl(null);
+    void vaultRepository.getBlob(item.id).then((blob) => {
+      if (cancelled || !blob) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [item.id, item.kind]);
+
+  if (item.kind !== "image") return null;
+
+  return (
+    <div className="mb-2 aspect-video w-full overflow-hidden rounded-lg bg-surface-sunken">
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <div className="h-full w-full animate-pulse" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
 export function VaultView({ title, description, kind, favoritesOnly }: VaultViewProps) {
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<VaultItem | null>(null);
@@ -121,6 +159,7 @@ export function VaultView({ title, description, kind, favoritesOnly }: VaultView
           {items.map((item) => (
             <li key={item.id} className="surface-card flex flex-col gap-2 p-4">
               <button type="button" onClick={() => setPreview(item)} className="text-left">
+                <VaultThumbnail item={item} />
                 <p className="truncate font-medium">{item.name}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.kind} · {formatBytes(item.sizeBytes)} · {formatDate(item.createdAt)}
