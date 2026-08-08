@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Newspaper, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { currentAffairsProviders, orderByRelevance } from "@/features/current-affairs/provider";
@@ -39,6 +39,13 @@ function CurrentAffairsPage() {
   const exams = useRepoQuery(() => examRepository.list());
   const [refreshing, setRefreshing] = useState(false);
   const provider = currentAffairsProviders.active();
+  const itemId = new URLSearchParams(window.location.search).get("itemId");
+
+  useEffect(() => {
+    if (!itemId || !stored) return;
+    document.getElementById(`current-affairs-${itemId}`)?.scrollIntoView({ block: "center" });
+    void currentAffairsRepository.markRead(itemId);
+  }, [itemId, stored]);
 
   async function refresh() {
     if (!provider) {
@@ -100,7 +107,7 @@ function CurrentAffairsPage() {
         ) : (
           <ul className="flex flex-col gap-3">
             {items.map((item) => (
-              <li key={item.id} className="surface-card p-4">
+              <li id={`current-affairs-${item.id}`} key={item.id} className="surface-card p-4">
                 <p className="font-medium">{item.title}</p>
                 <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.summary}</p>
                 <p className="mt-2 text-xs text-muted-foreground">

@@ -1,4 +1,4 @@
-import { isStandalone } from "@/pwa/register";
+import { isStandalone, registerServiceWorker } from "@/pwa/register";
 
 /**
  * Web Push architecture.
@@ -13,31 +13,17 @@ import { isStandalone } from "@/pwa/register";
 export type PushState =
   | "unsupported"
   | "requires-install"
-  | "default"
-  | "granted"
-  | "denied"
+  | "permission-not-requested"
+  | "permission-denied"
+  | "permission-granted-but-not-subscribed"
   | "subscribed"
   | "needs-renewal";
 
-const ENDPOINT_KEY = "exam-assistant.push.endpointUrl";
-const VAPID_KEY = "exam-assistant.push.vapidPublicKey";
-
-export function getPushEndpoint(): string {
-  if (typeof localStorage === "undefined") return "";
-  return localStorage.getItem(ENDPOINT_KEY) ?? "";
-}
-
-export function setPushEndpoint(url: string): void {
-  localStorage.setItem(ENDPOINT_KEY, url.trim());
-}
+const SUBSCRIPTION_ENDPOINT = "/api/notifications/subscribe";
+const UNSUBSCRIPTION_ENDPOINT = "/api/notifications/unsubscribe";
 
 export function getVapidPublicKey(): string {
-  if (typeof localStorage === "undefined") return "";
-  return localStorage.getItem(VAPID_KEY) ?? "";
-}
-
-export function setVapidPublicKey(key: string): void {
-  localStorage.setItem(VAPID_KEY, key.trim());
+  return import.meta.env["VITE_VAPID_PUBLIC_KEY"] ?? "";
 }
 
 export function isPushSupported(): boolean {
@@ -60,7 +46,7 @@ export async function getPushState(): Promise<PushState> {
   if (!isPushSupported()) return requiresHomeScreenInstall() ? "requires-install" : "unsupported";
   if (requiresHomeScreenInstall()) return "requires-install";
   const permission = Notification.permission;
-  if (permission === "denied") return "denied";
+  if (permission === "denied") return "permission-denied";
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager.getSubscription();
   if (subscription) {
@@ -68,7 +54,9 @@ export async function getPushState(): Promise<PushState> {
       subscription.expirationTime !== null && subscription.expirationTime < Date.now();
     return expired ? "needs-renewal" : "subscribed";
   }
-  return permission === "granted" ? "granted" : "default";
+  return permission === "granted"
+    ? "permission-granted-but-not-subscribed"
+    : "permission-not-requested";
 }
 
 export async function requestPermission(): Promise<NotificationPermission> {
@@ -85,8 +73,9 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
 
 export async function subscribeToPush(): Promise<PushSubscription> {
   const vapid = getVapidPublicKey();
-  if (!vapid) throw new Error("Add your VAPID public key before subscribing.");
-  const registration = await navigator.serviceWorker.ready;
+  if (!vapid) throw new Error("VITE_VAPID_PUBLIC_KEY is not configured.");
+  const registration = await registerServiceWorker();
+  if (!registration) throw new Error("A production service worker is required for push.");
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid) as BufferSource,
@@ -97,17 +86,23 @@ export async function subscribeToPush(): Promise<PushSubscription> {
 
 /** Sends only the push subscription to the user-configured endpoint. */
 export async function registerSubscription(subscription: PushSubscription): Promise<void> {
-  const endpoint = getPushEndpoint();
-  if (!endpoint) return;
-  await fetch(endpoint, {
+  const response = await fetch(SUBSCRIPTION_ENDPOINT, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ subscription: subscription.toJSON() }),
   });
+  if (!response.ok) throw new Error("The notification server could not register this device.");
 }
 
 export async function unsubscribeFromPush(): Promise<void> {
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager.getSubscription();
-  await subscription?.unsubscribe();
+  if (!subscription) return;
+  const response = await fetch(UNSUBSCRIPTION_ENDPOINT, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  if (!response.ok) throw new Error("The notification server could not remove this device.");
+  await subscription.unsubscribe();
 }

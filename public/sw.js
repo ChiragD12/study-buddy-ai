@@ -70,18 +70,22 @@ self.addEventListener("push", (event) => {
   if (!event.data) return;
   let payload = {};
   try {
-    payload = event.data.json();
+    const parsed = event.data.json();
+    payload = parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     payload = { title: "Exam Assistant", body: event.data.text() };
   }
   const title = payload.title || "Exam Assistant";
+  const target = payload.itemId
+    ? `/current-affairs?itemId=${encodeURIComponent(payload.itemId)}`
+    : payload.url || "/current-affairs";
   event.waitUntil(
     self.registration.showNotification(title, {
-      body: payload.body || "",
+      body: payload.category ? `Current Affairs · ${payload.category}` : payload.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       tag: payload.tag || "exam-assistant",
-      data: { url: payload.url || "/" },
+      data: { url: target, type: payload.type || "notification", itemId: payload.itemId },
     }),
   );
 });

@@ -6,12 +6,37 @@ export interface CurrentAffairsRepository {
   list(): Promise<CurrentAffairsItem[]>;
   saveMany(items: CurrentAffairsItem[]): Promise<void>;
   toggleSaved(id: ID): Promise<void>;
+  markRead(id: ID): Promise<void>;
   clear(): Promise<void>;
+}
+
+function hash(value: string): string {
+  let result = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    result ^= value.charCodeAt(index);
+    result = Math.imul(result, 16777619);
+  }
+  return (result >>> 0).toString(36);
+}
+
+function normalizeItem(item: CurrentAffairsItem): CurrentAffairsItem {
+  const sourceUrl = item.sourceUrl ?? item.url;
+  const categories = item.categories ?? item.tags;
+  return {
+    ...item,
+    id: item.id || `current-affairs-${hash(sourceUrl ?? item.title.trim().toLowerCase())}`,
+    sourceUrl,
+    url: item.url ?? sourceUrl,
+    categories,
+    tags: item.tags.length ? item.tags : categories,
+    fetchedAt: item.fetchedAt ?? now(),
+    relatedExamIds: item.relatedExamIds ?? [],
+  };
 }
 
 export const currentAffairsRepository: CurrentAffairsRepository = {
   async list() {
-    const items = await getDb().currentAffairs.toArray();
+    const items = (await getDb().currentAffairs.toArray()).map(normalizeItem);
     return items.sort(
       (a, b) =>
         (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0) ||
@@ -19,12 +44,24 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
     );
   },
   async saveMany(items) {
-    await getDb().currentAffairs.bulkPut(items);
+    const db = getDb();
+    const normalized: CurrentAffairsItem[] = [];
+    for (const item of items.map(normalizeItem)) {
+      const existing = item.sourceUrl
+        ? await db.currentAffairs.where("sourceUrl").equals(item.sourceUrl).first()
+        : undefined;
+      normalized.push(existing ? { ...item, id: existing.id } : item);
+    }
+    await db.currentAffairs.bulkPut(normalized);
   },
   async toggleSaved(id) {
     const item = await getDb().currentAffairs.get(id);
     if (!item) return;
     await getDb().currentAffairs.update(id, { savedAt: item.savedAt ? undefined : now() });
+  },
+  async markRead(id) {
+    if (await getDb().currentAffairs.get(id))
+      await getDb().currentAffairs.update(id, { readAt: now() });
   },
   async clear() {
     await getDb().currentAffairs.clear();

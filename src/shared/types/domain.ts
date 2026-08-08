@@ -141,10 +141,15 @@ export interface CurrentAffairsItem {
   url?: string | undefined;
   source: string;
   publishedAt: ISODate;
+  sourceUrl?: string | undefined;
+  fetchedAt?: ISODate | undefined;
+  categories?: string[] | undefined;
   tags: string[];
+  relatedExamIds?: ID[] | undefined;
   /** Internal ordering signal only — never surfaced as a rating in the UI. */
   relevanceScore?: number | undefined;
   savedAt?: ISODate | undefined;
+  readAt?: ISODate | undefined;
 }
 
 export interface StudyPlanEntry {

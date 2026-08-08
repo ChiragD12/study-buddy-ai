@@ -21,6 +21,17 @@ export interface CurrentAffairsProvider {
   fetchItems(query: CurrentAffairsQuery): Promise<CurrentAffairsItem[]>;
 }
 
+/** Development boundary only: no fabricated stories are presented as live data. */
+export const developmentCurrentAffairsProvider: CurrentAffairsProvider = {
+  id: "development-empty",
+  label: "Development (empty)",
+  requiresNetwork: false,
+  isConfigured: () => false,
+  async fetchItems() {
+    return [];
+  },
+};
+
 export class NoCurrentAffairsProviderError extends Error {
   constructor() {
     super("No current-affairs source is configured yet.");
