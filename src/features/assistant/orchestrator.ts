@@ -12,16 +12,16 @@ export type ToolActivity = (toolNames: string[]) => void;
 function resultsFor(calls: AIToolCall[]): Promise<AIToolResult[]> {
   return Promise.all(
     calls.map(async (call) => {
+      const base = {
+        internalId: call.internalId,
+        ...(call.providerCallId ? { providerCallId: call.providerCallId } : {}),
+        name: call.name,
+      };
       try {
-        return {
-          callId: call.id,
-          name: call.name,
-          result: await toolRegistry.execute(call.name, call.args),
-        };
+        return { ...base, result: await toolRegistry.execute(call.name, call.args) };
       } catch (error) {
         return {
-          callId: call.id,
-          name: call.name,
+          ...base,
           result: { error: error instanceof Error ? error.message : "The action failed." },
         };
       }
@@ -56,6 +56,7 @@ export async function runAssistantTools(
       role: "assistant",
       content: completion.text,
       toolCalls: calls,
+      ...(completion.providerRawParts ? { providerRawParts: completion.providerRawParts } : {}),
     };
     const mutating = calls.some((call) => toolRegistry.get(call.name)?.mutates);
     if (mutating) return { pending: { calls, history: [...messages, modelMessage] } };

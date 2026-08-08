@@ -14,6 +14,13 @@ interface GeminiPart {
   text?: string;
   functionCall?: { id?: string; name?: string; args?: Record<string, unknown> };
   functionResponse?: { id?: string; name?: string; response?: unknown };
+  /**
+   * Opaque reasoning-state token. Lives on the Part itself, as a sibling of
+   * functionCall/text — NOT nested inside functionCall. Wire field name is
+   * camelCase (thoughtSignature), consistent with the surrounding fields.
+   * Must be echoed back exactly as received.
+   */
+  thoughtSignature?: string;
 }
 interface GeminiCandidate {
   content?: { parts?: GeminiPart[] };
@@ -26,22 +33,68 @@ interface GeminiResponse {
 function toContents(messages: AIMessage[]) {
   return messages
     .filter((message) => message.role !== "system")
-    .map((message) => ({
-      role: message.role === "assistant" ? "model" : "user",
-      parts: message.toolCalls?.length
-        ? message.toolCalls.map((call) => ({
-            functionCall: { id: call.id, name: call.name, args: call.args },
-          }))
-        : message.toolResults?.length
-          ? message.toolResults.map((result) => ({
-              functionResponse: {
-                id: result.callId,
-                name: result.name,
-                response: { result: result.result },
-              },
-            }))
-          : [{ text: message.content }],
-    }));
+    .map((message) => {
+      // If this model turn came straight from Gemini, replay its exact
+      // original Parts verbatim. This is the only way to guarantee
+      // thoughtSignature (and any other Gemini-3 Part-level metadata, e.g.
+      // a standalone "thought" part that isn't attached to the functionCall
+      // part at all) survives — our generic AIToolCall shape can't model
+      // every field Gemini's wire format carries, so reconstructing from it
+      // is inherently lossy. Never decode, re-encode, reorder, or merge
+      // these parts — pass them through unchanged.
+      if (Array.isArray(message.providerRawParts) && message.providerRawParts.length) {
+        return {
+          role: message.role === "assistant" ? "model" : "user",
+          parts: message.providerRawParts,
+        };
+      }
+
+      const parts: Record<string, unknown>[] = [];
+
+      // Text and tool calls are not mutually exclusive on a real Gemini turn
+      // (a model turn can carry reasoning text alongside a functionCall) —
+      // preserve both instead of dropping text whenever calls are present.
+      if (message.content) {
+        parts.push({ text: message.content });
+      }
+
+      if (message.toolCalls?.length) {
+        for (const call of message.toolCalls) {
+          const thoughtSignature = call.providerMetadata?.["thoughtSignature"];
+          parts.push({
+            functionCall: {
+              name: call.name,
+              args: call.args,
+              // Only echo an id if Gemini actually issued one for this call.
+              // Never fabricate one — an invented id is not what Gemini sent
+              // and must not be replayed as though it were.
+              ...(call.providerCallId ? { id: call.providerCallId } : {}),
+            },
+            ...(typeof thoughtSignature === "string" ? { thoughtSignature } : {}),
+          });
+        }
+      } else if (message.toolResults?.length) {
+        for (const result of message.toolResults) {
+          parts.push({
+            functionResponse: {
+              name: result.name,
+              response: { result: result.result },
+              // Same rule as functionCall.id above: only present when the
+              // originating call actually had a real provider id.
+              ...(result.providerCallId ? { id: result.providerCallId } : {}),
+            },
+          });
+        }
+      }
+
+      // Every content entry needs at least one part.
+      if (parts.length === 0) parts.push({ text: "" });
+
+      return {
+        role: message.role === "assistant" ? "model" : "user",
+        parts,
+      };
+    });
 }
 
 function extractText(payload: GeminiResponse): string {
@@ -55,9 +108,26 @@ function extractToolCalls(payload: GeminiResponse) {
   return (payload.candidates ?? []).flatMap((candidate) =>
     (candidate.content?.parts ?? []).flatMap((part, index) => {
       const call = part.functionCall;
-      return call?.name
-        ? [{ id: call.id ?? `${call.name}-${index}`, name: call.name, args: call.args ?? {} }]
-        : [];
+      if (!call?.name) return [];
+      return [
+        {
+          // Local bookkeeping ID only — used to correlate this call with its
+          // AIToolResult inside this app. Never sent to Gemini.
+          internalId: `${call.name}-${index}`,
+          // Only set when Gemini actually returned an id (normally just for
+          // parallel calls). Never fabricated — absence is preserved as
+          // absence, not papered over with a synthetic value.
+          ...(call.id ? { providerCallId: call.id } : {}),
+          name: call.name,
+          args: call.args ?? {},
+          // thoughtSignature lives on the Part, alongside functionCall —
+          // not inside it. Preserved opaquely and replayed as-is in
+          // toContents(); never read or interpreted here.
+          ...(part.thoughtSignature
+            ? { providerMetadata: { thoughtSignature: part.thoughtSignature } }
+            : {}),
+        },
+      ];
     }),
   );
 }
@@ -186,7 +256,17 @@ export function createGeminiProvider(model: string): AIProvider {
         throw new Error(
           safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
         );
-      return { text: extractText(payload), toolCalls: extractToolCalls(payload) };
+      const toolCalls = extractToolCalls(payload);
+      return {
+        text: extractText(payload),
+        toolCalls,
+        // Only needed (and only present) when this turn included a tool
+        // call — plain text turns have nothing Gemini requires us to echo
+        // back, and toContents() falls back to plain text reconstruction.
+        ...(toolCalls.length
+          ? { providerRawParts: payload.candidates?.[0]?.content?.parts ?? [] }
+          : {}),
+      };
     },
     async *stream(messages, options) {
       const response = await call(

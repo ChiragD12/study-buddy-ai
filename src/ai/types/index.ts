@@ -8,16 +8,49 @@ export interface AIMessage {
   content: string;
   toolCalls?: AIToolCall[];
   toolResults?: AIToolResult[];
+  /**
+   * Opaque, provider-specific raw representation of this turn's original
+   * response content (e.g. Gemini's exact `candidate.content.parts` array),
+   * when the provider returned one. The generic AIToolCall/AIToolResult
+   * shape can't model everything a provider's wire format carries (e.g.
+   * Gemini 3 standalone "thought" parts). When present, the owning provider
+   * MUST replay this verbatim on the next request instead of reconstructing
+   * content from toolCalls, so nothing the provider requires gets dropped.
+   * Never read or interpreted outside the owning provider.
+   */
+  providerRawParts?: unknown;
 }
 
 export interface AIToolCall {
-  id: string;
+  /**
+   * Locally generated correlation ID for application bookkeeping only
+   * (matching this call to its AIToolResult). Never serialized onto the
+   * provider wire protocol.
+   */
+  internalId: string;
+  /**
+   * The exact call ID the provider returned for this call, if any (e.g.
+   * Gemini's `functionCall.id`, normally only present for parallel calls).
+   * Present only when the provider actually supplied one — never fabricated.
+   * Providers must echo this back verbatim on the follow-up request instead
+   * of inventing a value.
+   */
+  providerCallId?: string;
   name: string;
   args: Record<string, unknown>;
+  /**
+   * Opaque, provider-specific data that must be replayed verbatim alongside
+   * this call on the next request (e.g. Gemini's `thoughtSignature`).
+   * Never read or interpreted outside the owning provider.
+   */
+  providerMetadata?: Record<string, unknown>;
 }
 
 export interface AIToolResult {
-  callId: string;
+  /** Matches the originating AIToolCall.internalId. Bookkeeping only. */
+  internalId: string;
+  /** Matches the originating AIToolCall.providerCallId, when present. */
+  providerCallId?: string;
   name: string;
   result: unknown;
 }
@@ -57,6 +90,8 @@ export interface AIProvider {
 export interface AICompletion {
   text: string;
   toolCalls: AIToolCall[];
+  /** See AIMessage.providerRawParts — carried through so the orchestrator can attach it to the resulting modelMessage. */
+  providerRawParts?: unknown;
 }
 
 export class AINotConfiguredError extends Error {
