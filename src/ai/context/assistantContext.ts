@@ -10,6 +10,7 @@ import type { AIMessage } from "@/ai/types";
  */
 export interface AssistantContext {
   today: string;
+  activeExam?: { name: string; examDate: string | null; daysRemaining: number | null };
   nearestExam?: { name: string; examDate: string | null; daysRemaining: number | null };
 }
 
@@ -24,33 +25,41 @@ export async function buildAssistantContext(): Promise<AssistantContext> {
   const activeExam = settings.activeExamId
     ? await examRepository.get(settings.activeExamId)
     : undefined;
-  const exam = activeExam ?? (await examRepository.nearestUpcoming());
+  const nearestExam = await examRepository.nearestUpcoming();
+  const compact = (exam: typeof activeExam) =>
+    exam
+      ? { name: exam.name, examDate: exam.examDate, daysRemaining: daysUntil(exam.examDate) }
+      : undefined;
+  const active = compact(activeExam);
+  const nearest = compact(nearestExam);
   return {
     today: new Date().toISOString().slice(0, 10),
-    ...(exam
-      ? {
-          nearestExam: {
-            name: exam.name,
-            examDate: exam.examDate,
-            daysRemaining: daysUntil(exam.examDate),
-          },
-        }
-      : {}),
+    ...(active ? { activeExam: active } : {}),
+    ...(nearest ? { nearestExam: nearest } : {}),
   };
 }
 
 export function systemPrompt(context: AssistantContext): AIMessage {
-  const exam = context.nearestExam;
   return {
     role: "system",
     content: [
       "You are a personal exam-preparation assistant running inside a private, offline-first app.",
       `Today is ${context.today}.`,
-      exam
-        ? `The user's nearest exam is "${exam.name}"${
-            exam.daysRemaining !== null ? ` in ${exam.daysRemaining} days` : ""
+      context.activeExam
+        ? `The active exam is "${context.activeExam.name}"${
+            context.activeExam.daysRemaining !== null
+              ? ` in ${context.activeExam.daysRemaining} days`
+              : ""
           }.`
-        : "The user has not added any exams yet.",
+        : "There is no active exam selected.",
+      context.nearestExam
+        ? `The nearest upcoming exam is "${context.nearestExam.name}"${
+            context.nearestExam.daysRemaining !== null
+              ? ` in ${context.nearestExam.daysRemaining} days`
+              : ""
+          }.`
+        : "There are no upcoming exams.",
+      "Use local tools for local data and actions. Never invent records or IDs.",
       "Be concise, accurate and practical. Say plainly when you are unsure.",
     ].join(" "),
   };

@@ -67,6 +67,20 @@ function safeErrorMessage(message: string): string {
   return key ? message.split(key).join("[redacted]") : message;
 }
 
+function containsSchemaKey(value: unknown, key: string): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some((item) => containsSchemaKey(item, key));
+  return Object.entries(value).some(
+    ([entryKey, entryValue]) => entryKey === key || containsSchemaKey(entryValue, key),
+  );
+}
+
+function assertGeminiToolSchemas(tools: AITool[]): void {
+  if (tools.some((tool) => containsSchemaKey(tool.parameters, "additionalProperties"))) {
+    throw new Error("Gemini tool schema contains unsupported additionalProperties.");
+  }
+}
+
 /**
  * Direct browser -> Gemini implementation. No proxy, no backend, no key
  * leaving the device other than to Google.
@@ -102,6 +116,7 @@ export function createGeminiProvider(model: string): AIProvider {
   }
 
   function buildToolBody(messages: AIMessage[], tools: AITool[]) {
+    assertGeminiToolSchemas(tools);
     const system = messages.find((m) => m.role === "system")?.content;
     return {
       contents: toContents(messages),

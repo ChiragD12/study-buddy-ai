@@ -3,12 +3,33 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { buildAssistantContext, systemPrompt } from "@/ai/context/assistantContext";
 import { resolveProvider } from "@/ai/providers";
 import { AINotConfiguredError, type AIMessage } from "@/ai/types";
-import { runAssistantTools, type PendingToolAction } from "@/features/assistant/orchestrator";
+import {
+  runAssistantTools,
+  type PendingToolAction,
+  type ToolActivity,
+} from "@/features/assistant/orchestrator";
 import { chatRepository } from "@/data/repositories/chat.repository";
 import { isBrowser } from "@/data/db/db";
 import type { ChatMessage } from "@/shared/types/domain";
 
 export type ChatStatus = "idle" | "submitted" | "streaming";
+
+function friendlyError(cause: unknown): string {
+  if (cause instanceof AINotConfiguredError) return cause.message;
+  if (cause instanceof Error && cause.message.includes("find")) return cause.message;
+  return "I couldn't complete that request. Please try again.";
+}
+
+function activityFor(names: string[]): string {
+  if (names.some((name) => name.startsWith("notes"))) return "Searching your notes…";
+  if (names.some((name) => name.startsWith("studyPlan"))) return "Checking your study plan…";
+  if (names.some((name) => name.startsWith("vault"))) return "Searching your Vault…";
+  if (names.some((name) => name.startsWith("exams"))) return "Checking your exams…";
+  if (names.some((name) => name.startsWith("currentAffairs")))
+    return "Checking your saved current affairs…";
+  if (names.some((name) => name.startsWith("progress"))) return "Checking your study progress…";
+  return "Working with your study data…";
+}
 
 /**
  * Assistant orchestration entry point.
@@ -21,6 +42,7 @@ export function useAssistantChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [activity, setActivity] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingToolAction | null>(null);
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const confirmingRef = useRef(false);
@@ -78,21 +100,20 @@ export function useAssistantChat() {
         setError(new AINotConfiguredError().message);
         return;
       }
-      const result = await runAssistantTools(provider, pendingAction.history, true);
+      const result = await runAssistantTools(provider, pendingAction.history, true, (names) => {
+        setActivity(activityFor(names));
+      });
       await completeMessage(
         assistantMessage.id,
         result.text ?? "The requested action was completed.",
       );
     } catch (cause) {
-      if (assistantMessage)
-        await completeMessage(
-          assistantMessage.id,
-          cause instanceof Error ? cause.message : "The action failed.",
-        );
+      if (assistantMessage) await completeMessage(assistantMessage.id, friendlyError(cause));
     } finally {
       setPendingMessageId(null);
       confirmingRef.current = false;
       setStatus("idle");
+      setActivity(null);
     }
   }, [completeMessage, conversationId, messages, pendingAction, pendingMessageId]);
 
@@ -141,17 +162,19 @@ export function useAssistantChat() {
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const context = await buildAssistantContext();
-      const history: AIMessage[] = [
-        systemPrompt(context),
-        ...(await chatRepository.listMessages(conversationId))
-          .filter((message) => message.state === "complete")
-          .map((message) => ({ role: message.role, content: message.content })),
-      ];
 
       try {
+        const context = await buildAssistantContext();
+        const history: AIMessage[] = [
+          systemPrompt(context),
+          ...(await chatRepository.listMessages(conversationId))
+            .filter((message) => message.state === "complete")
+            .map((message) => ({ role: message.role, content: message.content })),
+        ];
         setStatus("streaming");
-        const result = await runAssistantTools(provider, history);
+        const result = await runAssistantTools(provider, history, false, (names) => {
+          setActivity(activityFor(names));
+        });
         if (result.pending) {
           setPendingAction(result.pending);
           setPendingMessageId(assistantMessage.id);
@@ -166,7 +189,7 @@ export function useAssistantChat() {
           );
         }
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : "Request failed.";
+        const message = friendlyError(cause);
         setError(message);
         await chatRepository.updateMessage(assistantMessage.id, { state: "error", error: message });
         setMessages((current) =>
@@ -177,6 +200,7 @@ export function useAssistantChat() {
       } finally {
         abortRef.current = null;
         setStatus("idle");
+        setActivity(null);
       }
     },
     [completeMessage, conversationId, status],
@@ -186,6 +210,7 @@ export function useAssistantChat() {
     conversationId,
     messages,
     status,
+    activity,
     error,
     send,
     stop,

@@ -1,9 +1,11 @@
 import { daysUntil } from "@/ai/context/assistantContext";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
+import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
 import { noteRepository } from "@/data/repositories/notes.repository";
 import { settingsRepository } from "@/data/repositories/settings.repository";
 import { vaultRepository } from "@/data/repositories/vault.repository";
+import { writingRepository } from "@/data/repositories/writing.repository";
 import { toolRegistry } from "@/ai/tools/registry";
 import type { AITool } from "@/ai/types";
 import type { ExamPriority, VaultKind } from "@/shared/types/domain";
@@ -55,9 +57,55 @@ function pick(source: Record<string, unknown>, keys: readonly string[]) {
   return Object.fromEntries(keys.filter((key) => key in source).map((key) => [key, source[key]]));
 }
 
+function requiredString(args: Record<string, unknown>, key: string, label: string): string {
+  const value = args[key];
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required.`);
+  return value.trim();
+}
+
+function optionalString(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${key} must be text.`);
+  return value.trim() || undefined;
+}
+
+function stringArray(args: Record<string, unknown>, key: string): string[] {
+  const value = args[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+    throw new Error(`${key} must be a list of text values.`);
+  return value.map((item) => item.trim()).filter(Boolean);
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("A patch object is required.");
+  return value as Record<string, unknown>;
+}
+
+function validDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00`));
+}
+
+function vaultResults(items: Awaited<ReturnType<typeof vaultRepository.list>>) {
+  return items
+    .slice(0, 20)
+    .map(({ id, name, kind, mimeType, sizeBytes, tags, favorite, examId }) => ({
+      id,
+      name,
+      kind,
+      mimeType,
+      sizeBytes,
+      tags,
+      favorite,
+      examId,
+    }));
+}
+
 const tools: AITool[] = [
   {
-    name: "exams.list",
+    name: "examsList",
     description: "List the user's exams with active status and countdown.",
     parameters: object({}),
     async execute() {
@@ -76,17 +124,38 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "exams.get",
+    name: "examsActive",
+    description: "Get the user's currently active exam.",
+    parameters: object({}),
+    async execute() {
+      const settings = await settingsRepository.get();
+      if (!settings.activeExamId) return { error: "There is no active exam selected." };
+      const exam = await examRepository.get(settings.activeExamId);
+      return exam ?? { error: "The active exam could not be found." };
+    },
+  },
+  {
+    name: "examsNearest",
+    description: "Get the nearest upcoming exam and its countdown.",
+    parameters: object({}),
+    async execute() {
+      const exam = await examRepository.nearestUpcoming();
+      if (!exam) return { error: "There are no upcoming exams." };
+      return { ...exam, daysRemaining: daysUntil(exam.examDate) };
+    },
+  },
+  {
+    name: "examsGet",
     description: "Get details for one exam.",
     parameters: object({ examId: string("Exam id") }, ["examId"]),
     async execute(args: { examId: string }) {
-      const exam = await examRepository.get(args.examId);
+      const exam = await examRepository.get(requiredString(args, "examId", "Exam id"));
       if (!exam) return { error: "I couldn't find that exam." };
       return exam;
     },
   },
   {
-    name: "exams.create",
+    name: "examsCreate",
     description: "Create an exam.",
     mutates: true,
     parameters: object(
@@ -101,8 +170,10 @@ const tools: AITool[] = [
       ["name"],
     ),
     async execute(args: ToolArgs) {
-      const name = typeof args.name === "string" ? args.name.trim() : "";
+      const name = optionalString(args, "name") ?? "";
       if (!name) return { error: "An exam name is required." };
+      if (args.priority !== undefined && !["low", "medium", "high"].includes(String(args.priority)))
+        return { error: "Priority must be low, medium or high." };
       return {
         exam: await examRepository.create({
           ...pick(args, editableExam),
@@ -113,7 +184,7 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "exams.update",
+    name: "examsUpdate",
     description: "Update editable fields on an existing exam.",
     mutates: true,
     parameters: object(
@@ -131,43 +202,59 @@ const tools: AITool[] = [
       ["examId", "patch"],
     ),
     async execute(args: { examId: string; patch: Record<string, unknown> }) {
-      if (!(await examRepository.get(args.examId))) return { error: "I couldn't find that exam." };
-      await examRepository.update(args.examId, pick(args.patch ?? {}, editableExam));
-      return { updated: true, examId: args.examId };
+      const examId = requiredString(args, "examId", "Exam id");
+      if (!(await examRepository.get(examId))) return { error: "I couldn't find that exam." };
+      await examRepository.update(examId, pick(objectRecord(args.patch), editableExam));
+      return { updated: true, examId };
     },
   },
   {
-    name: "exams.delete",
+    name: "examsDelete",
     description: "Delete one exam.",
     mutates: true,
     parameters: object({ examId: string("Exam id") }, ["examId"]),
     async execute(args: { examId: string }) {
-      if (!(await examRepository.get(args.examId))) return { error: "I couldn't find that exam." };
-      await examRepository.remove(args.examId);
-      return { deleted: true, examId: args.examId };
+      const examId = requiredString(args, "examId", "Exam id");
+      if (!(await examRepository.get(examId))) return { error: "I couldn't find that exam." };
+      await examRepository.remove(examId);
+      return { deleted: true, examId };
     },
   },
   {
-    name: "exams.setActive",
+    name: "examsSetActive",
     description: "Set an existing exam as active.",
     mutates: true,
     parameters: object({ examId: string("Exam id") }, ["examId"]),
     async execute(args: { examId: string }) {
-      if (!(await examRepository.get(args.examId))) return { error: "I couldn't find that exam." };
-      await settingsRepository.update({ activeExamId: args.examId });
-      return { activeExamId: args.examId };
+      const examId = requiredString(args, "examId", "Exam id");
+      if (!(await examRepository.get(examId))) return { error: "I couldn't find that exam." };
+      await settingsRepository.update({ activeExamId: examId });
+      return { activeExamId: examId };
     },
   },
   {
-    name: "notes.search",
-    description: "Search note titles, contents and metadata. Returns concise excerpts.",
-    parameters: object({
-      query: string("Search phrase"),
-      examId: string("Optional exam id"),
-      subject: string("Optional subject"),
-      topic: string("Optional topic"),
-      tags: { type: "array", items: { type: "string" } },
-    }),
+    name: "examsClearActive",
+    description: "Clear the user's active exam selection.",
+    mutates: true,
+    parameters: object({}),
+    async execute() {
+      await settingsRepository.update({ activeExamId: null });
+      return { activeExamId: null };
+    },
+  },
+  {
+    name: "notesSearch",
+    description: "Search or list note titles, contents and metadata. Returns concise excerpts.",
+    parameters: object(
+      {
+        query: string("Search phrase"),
+        examId: string("Optional exam id"),
+        subject: string("Optional subject"),
+        topic: string("Optional topic"),
+        tags: { type: "array", items: { type: "string" } },
+      },
+      [],
+    ),
     async execute(args: ToolArgs) {
       let notes = await noteRepository.search(typeof args.query === "string" ? args.query : "");
       if (typeof args.examId === "string") notes = notes.filter((n) => n.examId === args.examId);
@@ -175,8 +262,8 @@ const tools: AITool[] = [
       const topic = typeof args.topic === "string" ? args.topic : undefined;
       if (subject) notes = notes.filter((n) => n.subject?.toLowerCase() === subject.toLowerCase());
       if (topic) notes = notes.filter((n) => n.topic?.toLowerCase() === topic.toLowerCase());
-      if (Array.isArray(args.tags))
-        notes = notes.filter((n) => (args.tags as string[]).every((tag) => n.tags.includes(tag)));
+      const tags = stringArray(args, "tags");
+      if (tags.length) notes = notes.filter((n) => tags.every((tag) => n.tags.includes(tag)));
       return {
         results: notes.slice(0, 12).map((n) => ({
           id: n.id,
@@ -190,16 +277,16 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "notes.get",
+    name: "notesGet",
     description: "Get one explicitly requested note.",
     parameters: object({ noteId: string("Note id") }, ["noteId"]),
     async execute(args: { noteId: string }) {
-      const note = await noteRepository.get(args.noteId);
+      const note = await noteRepository.get(requiredString(args, "noteId", "Note id"));
       return note ?? { error: "I couldn't find that note." };
     },
   },
   {
-    name: "notes.create",
+    name: "notesCreate",
     description: "Create a local note.",
     mutates: true,
     parameters: object(
@@ -215,8 +302,10 @@ const tools: AITool[] = [
       ["title", "content"],
     ),
     async execute(args: ToolArgs) {
-      const title = typeof args.title === "string" ? args.title.trim() : "";
+      const title = optionalString(args, "title") ?? "";
       if (!title) return { error: "A note title is required." };
+      if (typeof args.content !== "string" || !args.content.trim())
+        return { error: "Note content is required." };
       return {
         note: await noteRepository.create({
           ...pick(args, editableNote),
@@ -227,7 +316,7 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "notes.update",
+    name: "notesUpdate",
     description: "Update selected editable fields on a note.",
     mutates: true,
     parameters: object(
@@ -241,29 +330,58 @@ const tools: AITool[] = [
           topic: string("Topic"),
           tags: { type: "array", items: { type: "string" } },
           source: string("Source"),
+          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          verification: { type: "string", enum: ["unverified", "pending", "verified", "flagged"] },
         }),
       },
       ["noteId", "patch"],
     ),
     async execute(args: { noteId: string; patch: Record<string, unknown> }) {
-      if (!(await noteRepository.get(args.noteId))) return { error: "I couldn't find that note." };
-      await noteRepository.update(args.noteId, pick(args.patch ?? {}, editableNote));
-      return { updated: true, noteId: args.noteId };
+      const noteId = requiredString(args, "noteId", "Note id");
+      const note = await noteRepository.get(noteId);
+      if (!note) return { error: "I couldn't find that note." };
+      const patch = objectRecord(args.patch);
+      if (
+        patch["confidence"] !== undefined &&
+        !["low", "medium", "high"].includes(String(patch["confidence"]))
+      )
+        return { error: "Confidence must be low, medium or high." };
+      if (
+        patch["verification"] !== undefined &&
+        !["unverified", "pending", "verified", "flagged"].includes(String(patch["verification"]))
+      )
+        return { error: "Verification must be unverified, pending, verified or flagged." };
+      const updatePatch = pick(patch, editableNote);
+      if (patch["tags"] !== undefined)
+        updatePatch["tags"] = stringArray({ tags: patch["tags"] }, "tags");
+      if (patch["verification"] && patch["verification"] !== note.verification) {
+        updatePatch["verificationHistory"] = [
+          ...note.verificationHistory,
+          {
+            at: new Date().toISOString(),
+            status: patch["verification"],
+            summary: "Set manually by the user.",
+          },
+        ];
+      }
+      await noteRepository.update(noteId, updatePatch);
+      return { updated: true, noteId };
     },
   },
   {
-    name: "notes.delete",
+    name: "notesDelete",
     description: "Delete one note.",
     mutates: true,
     parameters: object({ noteId: string("Note id") }, ["noteId"]),
     async execute(args: { noteId: string }) {
-      if (!(await noteRepository.get(args.noteId))) return { error: "I couldn't find that note." };
-      await noteRepository.remove(args.noteId);
-      return { deleted: true, noteId: args.noteId };
+      const noteId = requiredString(args, "noteId", "Note id");
+      if (!(await noteRepository.get(noteId))) return { error: "I couldn't find that note." };
+      await noteRepository.remove(noteId);
+      return { deleted: true, noteId };
     },
   },
   {
-    name: "vault.search",
+    name: "vaultSearch",
     description: "Search Vault metadata only; never returns file contents.",
     parameters: object({
       query: string("Search phrase"),
@@ -293,18 +411,42 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "vault.get",
+    name: "vaultListPdfs",
+    description: "List PDF metadata in the user's Vault without reading file contents.",
+    parameters: object({}),
+    async execute() {
+      return { results: vaultResults(await vaultRepository.list({ kind: "pdf" })) };
+    },
+  },
+  {
+    name: "vaultListImages",
+    description: "List image metadata in the user's Vault without reading file contents.",
+    parameters: object({}),
+    async execute() {
+      return { results: vaultResults(await vaultRepository.list({ kind: "image" })) };
+    },
+  },
+  {
+    name: "vaultListSaved",
+    description: "List favorited Vault metadata without reading file contents.",
+    parameters: object({}),
+    async execute() {
+      return { results: vaultResults(await vaultRepository.list({ favoritesOnly: true })) };
+    },
+  },
+  {
+    name: "vaultGet",
     description: "Get Vault metadata for one item, without file data.",
     parameters: object({ vaultItemId: string("Vault item id") }, ["vaultItemId"]),
     async execute(args: { vaultItemId: string }) {
-      const item = await vaultRepository.get(args.vaultItemId);
+      const item = await vaultRepository.get(requiredString(args, "vaultItemId", "Vault item id"));
       if (!item) return { error: "I couldn't find that file." };
       const { blobKey: _blobKey, ...metadata } = item;
       return metadata;
     },
   },
   {
-    name: "vault.save",
+    name: "vaultSave",
     description: "Save supplied text as a local Vault text file.",
     mutates: true,
     parameters: object(
@@ -332,7 +474,52 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "studyPlan.list",
+    name: "vaultToggleFavorite",
+    description: "Favorite or unfavorite one Vault item.",
+    mutates: true,
+    parameters: object({ vaultItemId: string("Vault item id") }, ["vaultItemId"]),
+    async execute(args: { vaultItemId: string }) {
+      const vaultItemId = requiredString(args, "vaultItemId", "Vault item id");
+      const item = await vaultRepository.get(vaultItemId);
+      if (!item) return { error: "I couldn't find that file." };
+      await vaultRepository.toggleFavorite(vaultItemId);
+      return { vaultItemId, favorite: !item.favorite };
+    },
+  },
+  {
+    name: "vaultDelete",
+    description: "Delete one Vault item and its local file data.",
+    mutates: true,
+    parameters: object({ vaultItemId: string("Vault item id") }, ["vaultItemId"]),
+    async execute(args: { vaultItemId: string }) {
+      const vaultItemId = requiredString(args, "vaultItemId", "Vault item id");
+      if (!(await vaultRepository.get(vaultItemId))) return { error: "I couldn't find that file." };
+      await vaultRepository.remove(vaultItemId);
+      return { deleted: true, vaultItemId };
+    },
+  },
+  {
+    name: "currentAffairsSaved",
+    description: "List saved current-affairs metadata from the local database.",
+    parameters: object({}),
+    async execute() {
+      const items = (await currentAffairsRepository.list()).filter((item) => item.savedAt);
+      return {
+        results: items
+          .slice(0, 20)
+          .map(({ id, title, summary, source, publishedAt, categories }) => ({
+            id,
+            title,
+            summary: excerpt(summary),
+            source,
+            publishedAt,
+            categories,
+          })),
+      };
+    },
+  },
+  {
+    name: "studyPlanList",
     description: "List local study-plan entries.",
     parameters: object({
       examId: string("Optional exam id"),
@@ -342,7 +529,7 @@ const tools: AITool[] = [
       let entries = await studyPlanRepository.list();
       if (typeof args.examId === "string")
         entries = entries.filter((e) => e.examId === args.examId);
-      if (typeof args.date === "string")
+      if (typeof args.date === "string" && validDate(args.date))
         entries = entries.filter((e) => e.date.slice(0, 10) === args.date);
       return {
         results: entries.map((e) => ({
@@ -357,7 +544,36 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "studyPlan.create",
+    name: "progressSummary",
+    description:
+      "Summarize actual local study-plan completion and exam counts; no invented metrics.",
+    parameters: object({}),
+    async execute() {
+      const [entries, exams, notes, prompts] = await Promise.all([
+        studyPlanRepository.list(),
+        examRepository.list(),
+        noteRepository.list(),
+        writingRepository.listPrompts(),
+      ]);
+      const today = new Date().toISOString().slice(0, 10);
+      return {
+        exams: {
+          total: exams.length,
+          upcoming: exams.filter((exam) => exam.examDate && exam.examDate >= today).length,
+        },
+        notes: { total: notes.length },
+        writingPrompts: { total: prompts.length },
+        studyPlan: {
+          total: entries.length,
+          completed: entries.filter((entry) => entry.done).length,
+          upcoming: entries.filter((entry) => !entry.done && entry.date.slice(0, 10) >= today)
+            .length,
+        },
+      };
+    },
+  },
+  {
+    name: "studyPlanCreate",
     description: "Create a local study-plan entry.",
     mutates: true,
     parameters: object(
@@ -372,6 +588,8 @@ const tools: AITool[] = [
     async execute(args: ToolArgs) {
       if (typeof args.title !== "string" || typeof args.date !== "string")
         return { error: "A title and date are required." };
+      if (!args.title.trim() || !validDate(args.date))
+        return { error: "A non-empty title and valid YYYY-MM-DD date are required." };
       return {
         entry: await studyPlanRepository.create({
           title: args.title,
@@ -383,27 +601,29 @@ const tools: AITool[] = [
     },
   },
   {
-    name: "studyPlan.complete",
+    name: "studyPlanComplete",
     description: "Mark one study-plan entry complete or incomplete.",
     mutates: true,
     parameters: object({ entryId: string("Entry id") }, ["entryId"]),
     async execute(args: { entryId: string }) {
-      const entry = (await studyPlanRepository.list()).find((item) => item.id === args.entryId);
+      const entryId = requiredString(args, "entryId", "Study-plan entry id");
+      const entry = (await studyPlanRepository.list()).find((item) => item.id === entryId);
       if (!entry) return { error: "I couldn't find that study-plan entry." };
-      await studyPlanRepository.toggleDone(args.entryId);
-      return { updated: true, entryId: args.entryId };
+      await studyPlanRepository.toggleDone(entryId);
+      return { updated: true, entryId };
     },
   },
   {
-    name: "studyPlan.delete",
+    name: "studyPlanDelete",
     description: "Delete one study-plan entry.",
     mutates: true,
     parameters: object({ entryId: string("Entry id") }, ["entryId"]),
     async execute(args: { entryId: string }) {
-      const entry = (await studyPlanRepository.list()).find((item) => item.id === args.entryId);
+      const entryId = requiredString(args, "entryId", "Study-plan entry id");
+      const entry = (await studyPlanRepository.list()).find((item) => item.id === entryId);
       if (!entry) return { error: "I couldn't find that study-plan entry." };
-      await studyPlanRepository.remove(args.entryId);
-      return { deleted: true, entryId: args.entryId };
+      await studyPlanRepository.remove(entryId);
+      return { deleted: true, entryId };
     },
   },
 ];

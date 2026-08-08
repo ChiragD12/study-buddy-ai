@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 
-import { useSettings } from "@/app/providers/SettingsProvider";
 import {
   ChatComposer,
   MessageBubble,
@@ -39,9 +38,35 @@ const SUGGESTIONS = [
   "Practice answer writing",
 ];
 
+const ACTION_COPY: Record<string, string> = {
+  examsCreate: "create an exam",
+  examsUpdate: "update an exam",
+  examsDelete: "delete an exam",
+  examsSetActive: "change your active exam",
+  examsClearActive: "clear your active exam",
+  notesCreate: "create a note",
+  notesUpdate: "update a note",
+  notesDelete: "delete a note",
+  studyPlanCreate: "add a study-plan entry",
+  studyPlanComplete: "update a study-plan entry",
+  studyPlanDelete: "remove a study-plan entry",
+  vaultSave: "save text in your Vault",
+  vaultToggleFavorite: "change a Vault favorite",
+  vaultDelete: "delete a Vault item",
+};
+
 function AssistantPage() {
-  const { messages, status, error, send, stop, pendingAction, confirmPending, rejectPending } =
-    useAssistantChat();
+  const {
+    messages,
+    status,
+    activity,
+    error,
+    send,
+    stop,
+    pendingAction,
+    confirmPending,
+    rejectPending,
+  } = useAssistantChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasMessages = messages.length > 0;
   const hello = useMemo(() => greeting(), []);
@@ -80,10 +105,19 @@ function AssistantPage() {
               {error}
             </p>
           ) : null}
+          {status !== "idle" ? (
+            <p role="status" className="mt-4 text-sm text-muted-foreground">
+              {activity ?? "Thinking…"}
+            </p>
+          ) : null}
           {pendingAction ? (
             <div className="surface-card mt-4 flex flex-wrap items-center gap-2 p-3 text-sm">
               <span className="flex-1">
-                Confirm local action: {pendingAction.calls.map((call) => call.name).join(", ")}
+                I can{" "}
+                {pendingAction.calls
+                  .map((call) => ACTION_COPY[call.name] ?? "make a local change")
+                  .join(" and ")}
+                . Do you want me to continue?
               </span>
               <button
                 type="button"

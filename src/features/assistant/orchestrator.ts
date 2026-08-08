@@ -7,6 +7,8 @@ export interface PendingToolAction {
   history: AIMessage[];
 }
 
+export type ToolActivity = (toolNames: string[]) => void;
+
 function resultsFor(calls: AIToolCall[]): Promise<AIToolResult[]> {
   return Promise.all(
     calls.map(async (call) => {
@@ -31,9 +33,9 @@ export async function runAssistantTools(
   provider: AIProvider,
   history: AIMessage[],
   confirmed = false,
+  onToolActivity?: ToolActivity,
 ): Promise<{ text?: string; pending?: PendingToolAction }> {
   let messages = history;
-  let allowMutating = false;
   if (confirmed) {
     const pendingMessage = messages.at(-1);
     const pendingCalls = pendingMessage?.toolCalls ?? [];
@@ -49,17 +51,16 @@ export async function runAssistantTools(
     if (!completion.toolCalls.length)
       return { text: completion.text || "I couldn't complete that request." };
     const calls = completion.toolCalls;
+    onToolActivity?.(calls.map((call) => call.name));
     const modelMessage: AIMessage = {
       role: "assistant",
       content: completion.text,
       toolCalls: calls,
     };
     const mutating = calls.some((call) => toolRegistry.get(call.name)?.mutates);
-    if (mutating && !allowMutating)
-      return { pending: { calls, history: [...messages, modelMessage] } };
+    if (mutating) return { pending: { calls, history: [...messages, modelMessage] } };
     const toolResults = await resultsFor(calls);
     messages = [...messages, modelMessage, { role: "tool", content: "", toolResults }];
-    allowMutating = false;
   }
   return { text: "I completed the requested local actions." };
 }
