@@ -1,4 +1,5 @@
 import { daysUntil } from "@/ai/context/assistantContext";
+import { getVaultContent, VaultContentUnavailableError } from "@/ai/context/vaultContent";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
 import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
@@ -443,6 +444,27 @@ const tools: AITool[] = [
       if (!item) return { error: "I couldn't find that file." };
       const { blobKey: _blobKey, ...metadata } = item;
       return metadata;
+    },
+  },
+  {
+    name: "vaultReadContent",
+    description:
+      "Read the actual text/content of a Vault file. Use this when answering questions about " +
+      "what a PDF or image contains. This may perform PDF text extraction or OCR.",
+    parameters: object({ vaultItemId: string("Vault item id") }, ["vaultItemId"]),
+    async execute(args: { vaultItemId: string }) {
+      const vaultItemId = requiredString(args, "vaultItemId", "Vault item id");
+      try {
+        const { text, method, cached, truncated } = await getVaultContent(vaultItemId);
+        return { vaultItemId, method, cached, truncated, content: text };
+      } catch (error) {
+        return {
+          error:
+            error instanceof VaultContentUnavailableError
+              ? error.message
+              : "Unable to extract readable text from this file.",
+        };
+      }
     },
   },
   {

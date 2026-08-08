@@ -170,6 +170,28 @@ export interface VaultPdfDoc {
   updatedAt: ISODate;
 }
 
+/** How VaultContent.text was obtained. */
+export type VaultContentMethod = "text" | "pdf-text" | "ocr" | "pdf-ocr";
+
+/**
+ * Cached plain-text reading of a Vault file's actual contents, used by the
+ * AI assistant to answer questions about what a PDF/image contains (see
+ * `vaultReadContent` in ai/tools/localTools.ts). Lazily populated on first
+ * read, never on upload. One row per Vault item, keyed by vaultItemId.
+ *
+ * `sourceUpdatedAt` pins this cache to the `VaultItem.updatedAt` that was
+ * current at extraction time — a mismatch means the underlying blob has
+ * since changed (e.g. replaced), so the cache is stale and must be
+ * re-extracted rather than served.
+ */
+export interface VaultContent {
+  vaultItemId: ID;
+  text: string;
+  method: VaultContentMethod;
+  extractedAt: ISODate;
+  sourceUpdatedAt: ISODate;
+}
+
 export type ChatRole = "user" | "assistant" | "system";
 export type ChatMessageState = "complete" | "streaming" | "error";
 

@@ -5,7 +5,7 @@ import { DEFAULT_GEMINI_MODEL, isGeminiModel } from "@/ai/providers/models";
  * Exported backup schema version. Bump whenever the shape of exported data
  * changes so importers can migrate older backups.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * All Dexie schema versions in order. Add a new `db.version(n).stores({...})`
@@ -130,6 +130,26 @@ export function applyMigrations(db: Dexie): void {
     vaultItems: "id, name, kind, favorite, examId, updatedAt, *tags",
     vaultBlobs: "key",
     vaultPdfDocs: "vaultItemId",
+    conversations: "id, updatedAt",
+    messages: "id, conversationId, createdAt",
+    currentAffairs:
+      "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
+    studyPlan: "id, examId, date, priority, done, completedAt",
+    settings: "id",
+  });
+  // Vault AI reading: a small, additive cache of the plain-text reading of
+  // a Vault file's actual contents (PDF text extraction or OCR result),
+  // keyed by vaultItemId. Populated lazily by the vaultReadContent AI tool
+  // on first read, never on upload. Nothing else changes.
+  db.version(8).stores({
+    exams: "id, name, examDate, priority, updatedAt",
+    notes: "id, title, examId, subject, topic, verification, updatedAt, *tags",
+    writingPrompts: "id, track, format, examId, topic, status, updatedAt",
+    writingAttempts: "id, promptId, createdAt, updatedAt",
+    vaultItems: "id, name, kind, favorite, examId, updatedAt, *tags",
+    vaultBlobs: "key",
+    vaultPdfDocs: "vaultItemId",
+    vaultContent: "vaultItemId",
     conversations: "id, updatedAt",
     messages: "id, conversationId, createdAt",
     currentAffairs:

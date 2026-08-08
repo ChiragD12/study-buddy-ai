@@ -9,6 +9,7 @@ import type {
   AppSettings,
   StudyPlanEntry,
   VaultBlob,
+  VaultContent,
   VaultItem,
   VaultPdfDoc,
   WritingAttempt,
@@ -28,6 +29,7 @@ export class AppDatabase extends Dexie {
   vaultItems!: Table<VaultItem, string>;
   vaultBlobs!: Table<VaultBlob, string>;
   vaultPdfDocs!: Table<VaultPdfDoc, string>;
+  vaultContent!: Table<VaultContent, string>;
   conversations!: Table<Conversation, string>;
   messages!: Table<ChatMessage, string>;
   currentAffairs!: Table<CurrentAffairsItem, string>;

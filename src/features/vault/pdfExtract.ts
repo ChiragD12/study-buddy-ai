@@ -33,6 +33,10 @@
  *
  * Requires the `pdfjs-dist` package (not present in this checkout's
  * dependency list — add it, e.g. `bun add pdfjs-dist`, before building).
+ *
+ * Also exports `renderPdfPagesToImages`, used by ai/context/vaultContent.ts
+ * to OCR scanned/image-only PDFs that `extractPdfDoc` can't read — see that
+ * function's own doc comment below.
  */
 import * as pdfjsLib from "pdfjs-dist";
 // Vite-specific worker asset import (`?url` resolves to a fingerprinted
@@ -182,4 +186,45 @@ export async function extractPdfDoc(blob: Blob, fallbackTitle: string): Promise<
     title: title && titleFontSize > 0 ? title : fallbackTitle,
     sections: sections.length ? sections : [{ paragraphs: [] }],
   };
+}
+
+/**
+ * Renders each page of a PDF to a PNG image, for OCR when the PDF has no
+ * extractable text layer (see `PdfNotExtractableError` above — scanned /
+ * image-only pages). Reuses the same pdf.js setup as `extractPdfDoc`; kept
+ * additive here rather than touching that function so normal text-PDF
+ * extraction behaviour is unchanged.
+ *
+ * Capped at `maxPages` so OCR-ing a very long scanned document stays
+ * bounded — generous enough for typical study material, not a general
+ * document-processing limit.
+ */
+export async function renderPdfPagesToImages(blob: Blob, maxPages = 30): Promise<Blob[]> {
+  const buffer = await blob.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: buffer });
+  const doc = await loadingTask.promise;
+  const images: Blob[] = [];
+
+  try {
+    const pageCount = Math.min(doc.numPages, maxPages);
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+      const page = await doc.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvas, viewport }).promise;
+      const image = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (result) => (result ? resolve(result) : reject(new Error("Failed to render PDF page."))),
+          "image/png",
+        );
+      });
+      images.push(image);
+    }
+  } finally {
+    void loadingTask.destroy();
+  }
+
+  return images;
 }

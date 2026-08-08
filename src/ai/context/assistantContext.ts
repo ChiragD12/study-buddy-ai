@@ -60,6 +60,9 @@ export function systemPrompt(context: AssistantContext): AIMessage {
           }.`
         : "There are no upcoming exams.",
       "Use local tools for local data and actions. Never invent records or IDs.",
+      "Vault search/list tools return metadata only, never file contents. To answer questions " +
+        "about what a specific Vault PDF or image actually says, first find it with a Vault " +
+        "search/list/get tool, then call vaultReadContent with its id before answering.",
       "Be concise, accurate and practical. Say plainly when you are unsure.",
     ].join(" "),
   };

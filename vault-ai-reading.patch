@@ -1,0 +1,483 @@
+diff -ruN a/src/ai/context/assistantContext.ts b/src/ai/context/assistantContext.ts
+--- a/src/ai/context/assistantContext.ts	2026-08-08 18:18:55.169902303 +0000
++++ b/src/ai/context/assistantContext.ts	2026-08-08 18:18:55.215116409 +0000
+@@ -60,6 +60,9 @@
+           }.`
+         : "There are no upcoming exams.",
+       "Use local tools for local data and actions. Never invent records or IDs.",
++      "Vault search/list tools return metadata only, never file contents. To answer questions " +
++        "about what a specific Vault PDF or image actually says, first find it with a Vault " +
++        "search/list/get tool, then call vaultReadContent with its id before answering.",
+       "Be concise, accurate and practical. Say plainly when you are unsure.",
+     ].join(" "),
+   };
+diff -ruN a/src/ai/context/vaultContent.ts b/src/ai/context/vaultContent.ts
+--- a/src/ai/context/vaultContent.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/ai/context/vaultContent.ts	2026-08-08 18:18:55.319357744 +0000
+@@ -0,0 +1,165 @@
++/**
++ * Vault file → readable text, for the AI assistant.
++ *
++ * This is the piece `vaultSearch`/`vaultGet`/etc (ai/tools/localTools.ts)
++ * deliberately don't do: those return metadata only. `getVaultContent`
++ * below is what the `vaultReadContent` tool calls to actually read a file's
++ * contents, so the assistant can answer questions about what it says.
++ *
++ * Extraction is lazy (only runs when a tool call actually asks for a given
++ * file) and cached in the `vaultContent` table (see
++ * data/repositories/vaultContent.repository.ts), keyed by vaultItemId and
++ * pinned to the VaultItem's `updatedAt` at extraction time so a replaced
++ * blob is never served stale.
++ *
++ * Not implemented here, intentionally: PDF semantic editing, PDF → HTML, or
++ * any kind of retrieval/vector index. This just gets real text in front of
++ * the model; the existing tool loop (ai/tools/localTools.ts) and
++ * conversation history are the only "retrieval" in play.
++ */
++import { vaultRepository } from "@/data/repositories/vault.repository";
++import { vaultContentRepository } from "@/data/repositories/vaultContent.repository";
++import { extractPdfDoc, renderPdfPagesToImages, PdfNotExtractableError } from "@/features/vault/pdfExtract";
++import type { PdfDocSpec } from "@/features/vault/pdfDoc";
++import { ocrImage, OcrFailedError } from "@/features/vault/ocr";
++import type { VaultContentMethod, VaultItem } from "@/shared/types/domain";
++
++export class VaultContentUnavailableError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "VaultContentUnavailableError";
++  }
++}
++
++export interface VaultContentResult {
++  text: string;
++  method: VaultContentMethod;
++  /** True if this came from the cache rather than a fresh extraction. */
++  cached: boolean;
++  /** True if the returned text was cut short to keep the tool result bounded. */
++  truncated: boolean;
++}
++
++// Keeps a single tool result comfortably inside a normal context window
++// even for a long PDF, without building a real chunking/retrieval system.
++const MAX_CHARS = 24_000;
++
++function normalize(text: string): string {
++  return text
++    .replace(/[ \t]+/g, " ")
++    .replace(/[ \t]+\n/g, "\n")
++    .replace(/\n{3,}/g, "\n\n")
++    .trim();
++}
++
++function truncate(text: string): { text: string; truncated: boolean } {
++  if (text.length <= MAX_CHARS) return { text, truncated: false };
++  return {
++    text: `${text.slice(0, MAX_CHARS)}\n\n[Content truncated — this document is longer than shown here.]`,
++    truncated: true,
++  };
++}
++
++/** Flattens the structured `{title, sections}` shape into page-tagged plain text. */
++function pdfDocToText(doc: PdfDocSpec): string {
++  const pages = doc.sections.map((section, index) => {
++    const body = [
++      ...(section.heading ? [section.heading] : []),
++      ...(section.paragraphs ?? []),
++      ...(section.bullets ?? []),
++    ]
++      .join("\n\n")
++      .trim();
++    return `[Page ${index + 1}]\n${body}`;
++  });
++  return [doc.title, ...pages].filter((part) => part.trim()).join("\n\n");
++}
++
++async function ocrPdf(blob: Blob): Promise<string> {
++  const images = await renderPdfPagesToImages(blob);
++  if (!images.length) {
++    throw new VaultContentUnavailableError("Unable to extract readable text from this file.");
++  }
++  const pages: string[] = [];
++  let pageNumber = 0;
++  for (const image of images) {
++    pageNumber += 1;
++    try {
++      const pageText = await ocrImage(image);
++      pages.push(`[Page ${pageNumber}]\n${pageText}`);
++    } catch {
++      // One unreadable page shouldn't fail the whole document — note it and
++      // keep going so the rest of the PDF is still usable.
++      pages.push(`[Page ${pageNumber}]\n[OCR could not read this page]`);
++    }
++  }
++  return pages.join("\n\n");
++}
++
++async function extractFresh(
++  item: VaultItem,
++  blob: Blob,
++): Promise<{ text: string; method: VaultContentMethod }> {
++  if (item.kind === "text") {
++    const text = normalize(await blob.text());
++    if (!text) throw new VaultContentUnavailableError("This text file appears to be empty.");
++    return { text, method: "text" };
++  }
++
++  if (item.kind === "pdf") {
++    try {
++      const doc = await extractPdfDoc(blob, item.name);
++      const text = normalize(pdfDocToText(doc));
++      if (!text) throw new PdfNotExtractableError();
++      return { text, method: "pdf-text" };
++    } catch (error) {
++      if (!(error instanceof PdfNotExtractableError)) throw error;
++      // No text layer — this is a scanned/image PDF. Fall back to OCR
++      // instead of treating "no text layer" as fatal.
++      const text = normalize(await ocrPdf(blob));
++      if (!text) throw new VaultContentUnavailableError("Unable to extract readable text from this file.");
++      return { text, method: "pdf-ocr" };
++    }
++  }
++
++  if (item.kind === "image") {
++    try {
++      const text = normalize(await ocrImage(blob));
++      return { text, method: "ocr" };
++    } catch (error) {
++      throw new VaultContentUnavailableError(
++        error instanceof OcrFailedError ? error.message : "OCR failed for this image.",
++      );
++    }
++  }
++
++  throw new VaultContentUnavailableError(
++    "This file type isn't supported for AI reading yet — only PDFs, images, and text files are.",
++  );
++}
++
++/**
++ * Resolves a Vault item to readable text: serves a valid cached extraction
++ * if one exists, otherwise extracts/OCRs it fresh and caches the result.
++ * Throws `VaultContentUnavailableError` (a safe, user-facing message —
++ * never a raw stack trace) if the content genuinely can't be read.
++ */
++export async function getVaultContent(vaultItemId: string): Promise<VaultContentResult> {
++  const item = await vaultRepository.get(vaultItemId);
++  if (!item) throw new VaultContentUnavailableError("I couldn't find that file.");
++
++  const cached = await vaultContentRepository.get(vaultItemId);
++  if (cached && cached.sourceUpdatedAt === item.updatedAt) {
++    const { text, truncated } = truncate(cached.text);
++    return { text, method: cached.method, cached: true, truncated };
++  }
++
++  const blob = await vaultRepository.getBlob(vaultItemId);
++  if (!blob) throw new VaultContentUnavailableError("This file has no stored data to read.");
++
++  const { text, method } = await extractFresh(item, blob);
++  await vaultContentRepository.put(vaultItemId, text, method, item.updatedAt);
++
++  const { text: bounded, truncated } = truncate(text);
++  return { text: bounded, method, cached: false, truncated };
++}
+diff -ruN a/src/ai/tools/localTools.ts b/src/ai/tools/localTools.ts
+--- a/src/ai/tools/localTools.ts	2026-08-08 18:18:55.172738219 +0000
++++ b/src/ai/tools/localTools.ts	2026-08-08 18:18:55.324890180 +0000
+@@ -1,4 +1,5 @@
+ import { daysUntil } from "@/ai/context/assistantContext";
++import { getVaultContent, VaultContentUnavailableError } from "@/ai/context/vaultContent";
+ import { examRepository } from "@/data/repositories/exams.repository";
+ import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
+ import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
+@@ -446,6 +447,27 @@
+     },
+   },
+   {
++    name: "vaultReadContent",
++    description:
++      "Read the actual text/content of a Vault file. Use this when answering questions about " +
++      "what a PDF or image contains. This may perform PDF text extraction or OCR.",
++    parameters: object({ vaultItemId: string("Vault item id") }, ["vaultItemId"]),
++    async execute(args: { vaultItemId: string }) {
++      const vaultItemId = requiredString(args, "vaultItemId", "Vault item id");
++      try {
++        const { text, method, cached, truncated } = await getVaultContent(vaultItemId);
++        return { vaultItemId, method, cached, truncated, content: text };
++      } catch (error) {
++        return {
++          error:
++            error instanceof VaultContentUnavailableError
++              ? error.message
++              : "Unable to extract readable text from this file.",
++        };
++      }
++    },
++  },
++  {
+     name: "vaultSave",
+     description:
+       "Save supplied text as a local Vault text file. On success, returns " +
+diff -ruN a/src/data/db/db.ts b/src/data/db/db.ts
+--- a/src/data/db/db.ts	2026-08-08 18:18:55.191395145 +0000
++++ b/src/data/db/db.ts	2026-08-08 18:18:55.342036031 +0000
+@@ -9,6 +9,7 @@
+   AppSettings,
+   StudyPlanEntry,
+   VaultBlob,
++  VaultContent,
+   VaultItem,
+   VaultPdfDoc,
+   WritingAttempt,
+@@ -28,6 +29,7 @@
+   vaultItems!: Table<VaultItem, string>;
+   vaultBlobs!: Table<VaultBlob, string>;
+   vaultPdfDocs!: Table<VaultPdfDoc, string>;
++  vaultContent!: Table<VaultContent, string>;
+   conversations!: Table<Conversation, string>;
+   messages!: Table<ChatMessage, string>;
+   currentAffairs!: Table<CurrentAffairsItem, string>;
+diff -ruN a/src/data/migrations/index.ts b/src/data/migrations/index.ts
+--- a/src/data/migrations/index.ts	2026-08-08 18:18:55.191678831 +0000
++++ b/src/data/migrations/index.ts	2026-08-08 18:18:55.342515275 +0000
+@@ -5,7 +5,7 @@
+  * Exported backup schema version. Bump whenever the shape of exported data
+  * changes so importers can migrate older backups.
+  */
+-export const SCHEMA_VERSION = 7;
++export const SCHEMA_VERSION = 8;
+ 
+ /**
+  * All Dexie schema versions in order. Add a new `db.version(n).stores({...})`
+@@ -133,6 +133,26 @@
+     conversations: "id, updatedAt",
+     messages: "id, conversationId, createdAt",
+     currentAffairs:
++      "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
++    studyPlan: "id, examId, date, priority, done, completedAt",
++    settings: "id",
++  });
++  // Vault AI reading: a small, additive cache of the plain-text reading of
++  // a Vault file's actual contents (PDF text extraction or OCR result),
++  // keyed by vaultItemId. Populated lazily by the vaultReadContent AI tool
++  // on first read, never on upload. Nothing else changes.
++  db.version(8).stores({
++    exams: "id, name, examDate, priority, updatedAt",
++    notes: "id, title, examId, subject, topic, verification, updatedAt, *tags",
++    writingPrompts: "id, track, format, examId, topic, status, updatedAt",
++    writingAttempts: "id, promptId, createdAt, updatedAt",
++    vaultItems: "id, name, kind, favorite, examId, updatedAt, *tags",
++    vaultBlobs: "key",
++    vaultPdfDocs: "vaultItemId",
++    vaultContent: "vaultItemId",
++    conversations: "id, updatedAt",
++    messages: "id, conversationId, createdAt",
++    currentAffairs:
+       "id, publishedAt, source, sourceUrl, fetchedAt, savedAt, *tags, *categories, *relatedExamIds",
+     studyPlan: "id, examId, date, priority, done, completedAt",
+     settings: "id",
+diff -ruN a/src/data/repositories/vaultContent.repository.ts b/src/data/repositories/vaultContent.repository.ts
+--- a/src/data/repositories/vaultContent.repository.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/data/repositories/vaultContent.repository.ts	2026-08-08 18:18:55.344669108 +0000
+@@ -0,0 +1,39 @@
++import { getDb } from "@/data/db/db";
++import { now } from "@/data/repositories/util";
++import type { ID, VaultContent, VaultContentMethod } from "@/shared/types/domain";
++
++/**
++ * Cache for the plain-text reading of a Vault file's actual contents (see
++ * VaultContent in shared/types/domain.ts). Populated lazily by
++ * `vaultReadContent` (ai/tools/localTools.ts) — never written on upload.
++ */
++export interface VaultContentRepository {
++  get(vaultItemId: ID): Promise<VaultContent | undefined>;
++  put(
++    vaultItemId: ID,
++    text: string,
++    method: VaultContentMethod,
++    sourceUpdatedAt: string,
++  ): Promise<VaultContent>;
++  remove(vaultItemId: ID): Promise<void>;
++}
++
++export const vaultContentRepository: VaultContentRepository = {
++  get(vaultItemId) {
++    return getDb().vaultContent.get(vaultItemId);
++  },
++  async put(vaultItemId, text, method, sourceUpdatedAt) {
++    const record: VaultContent = {
++      vaultItemId,
++      text,
++      method,
++      extractedAt: now(),
++      sourceUpdatedAt,
++    };
++    await getDb().vaultContent.put(record);
++    return record;
++  },
++  async remove(vaultItemId) {
++    await getDb().vaultContent.delete(vaultItemId);
++  },
++};
+diff -ruN a/src/features/vault/ocr.ts b/src/features/vault/ocr.ts
+--- a/src/features/vault/ocr.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/src/features/vault/ocr.ts	2026-08-08 18:18:55.350137915 +0000
+@@ -0,0 +1,68 @@
++/**
++ * OCR for Vault images and scanned/image-only PDF pages.
++ *
++ * Uses `tesseract.js`, which runs entirely in the browser (WASM + a web
++ * worker) — no server, no native deps, consistent with this app's
++ * offline-first, local-only architecture. On first use in a session it
++ * fetches the OCR engine core and English language data from tesseract.js's
++ * default CDN and lets the browser cache them (standard HTTP/CacheStorage
++ * caching); subsequent OCR calls reuse the cached worker. That first-use
++ * fetch requires network access — if a fully offline first-run is required
++ * later, the core/lang-data assets can be self-hosted and pointed at via
++ * `createWorker`'s `langPath`/`corePath` options, but that's out of scope
++ * for this pass.
++ *
++ * Kept isolated here so OCR logic never leaks into the extraction/tool
++ * layer — callers only ever see `ocrImage()` and `OcrFailedError`.
++ */
++import { createWorker, type Worker } from "tesseract.js";
++
++export class OcrFailedError extends Error {
++  constructor(message = "OCR failed for this image.") {
++    super(message);
++    this.name = "OcrFailedError";
++  }
++}
++
++// Lazily created, then reused for every OCR call in this session — spinning
++// up a tesseract.js worker (loading the wasm core + language data) is the
++// expensive part, so one shared worker avoids paying that cost per image.
++let workerPromise: Promise<Worker> | null = null;
++
++function getWorker(): Promise<Worker> {
++  if (!workerPromise) {
++    workerPromise = createWorker("eng").catch((error: unknown) => {
++      // Don't cache a rejected promise — the next call should retry.
++      workerPromise = null;
++      throw error;
++    });
++  }
++  return workerPromise;
++}
++
++/**
++ * Runs OCR on an image (or a single rendered PDF page image) and returns
++ * the recognised text. Throws `OcrFailedError` — never returns fabricated
++ * or placeholder content — if OCR fails or finds no readable text.
++ */
++export async function ocrImage(blob: Blob): Promise<string> {
++  let worker: Worker;
++  try {
++    worker = await getWorker();
++  } catch {
++    throw new OcrFailedError("The OCR engine couldn't be loaded (check your network connection).");
++  }
++
++  try {
++    // tesseract.js accepts a Blob/File directly at runtime (it reads it via
++    // FileReader internally); its published TS types only list
++    // string/HTMLImageElement/etc, so this cast just bridges that gap.
++    const { data } = await worker.recognize(blob as unknown as string);
++    const text = (data.text ?? "").trim();
++    if (!text) throw new OcrFailedError("No readable text was found in this image.");
++    return text;
++  } catch (error) {
++    if (error instanceof OcrFailedError) throw error;
++    throw new OcrFailedError();
++  }
++}
+diff -ruN a/src/features/vault/pdfExtract.ts b/src/features/vault/pdfExtract.ts
+--- a/src/features/vault/pdfExtract.ts	2026-08-08 18:18:55.199594489 +0000
++++ b/src/features/vault/pdfExtract.ts	2026-08-08 18:18:55.349046727 +0000
+@@ -33,6 +33,10 @@
+  *
+  * Requires the `pdfjs-dist` package (not present in this checkout's
+  * dependency list — add it, e.g. `bun add pdfjs-dist`, before building).
++ *
++ * Also exports `renderPdfPagesToImages`, used by ai/context/vaultContent.ts
++ * to OCR scanned/image-only PDFs that `extractPdfDoc` can't read — see that
++ * function's own doc comment below.
+  */
+ import * as pdfjsLib from "pdfjs-dist";
+ // Vite-specific worker asset import (`?url` resolves to a fingerprinted
+@@ -183,3 +187,44 @@
+     sections: sections.length ? sections : [{ paragraphs: [] }],
+   };
+ }
++
++/**
++ * Renders each page of a PDF to a PNG image, for OCR when the PDF has no
++ * extractable text layer (see `PdfNotExtractableError` above — scanned /
++ * image-only pages). Reuses the same pdf.js setup as `extractPdfDoc`; kept
++ * additive here rather than touching that function so normal text-PDF
++ * extraction behaviour is unchanged.
++ *
++ * Capped at `maxPages` so OCR-ing a very long scanned document stays
++ * bounded — generous enough for typical study material, not a general
++ * document-processing limit.
++ */
++export async function renderPdfPagesToImages(blob: Blob, maxPages = 30): Promise<Blob[]> {
++  const buffer = await blob.arrayBuffer();
++  const loadingTask = pdfjsLib.getDocument({ data: buffer });
++  const doc = await loadingTask.promise;
++  const images: Blob[] = [];
++
++  try {
++    const pageCount = Math.min(doc.numPages, maxPages);
++    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
++      const page = await doc.getPage(pageNumber);
++      const viewport = page.getViewport({ scale: 2 });
++      const canvas = document.createElement("canvas");
++      canvas.width = viewport.width;
++      canvas.height = viewport.height;
++      await page.render({ canvas, viewport }).promise;
++      const image = await new Promise<Blob>((resolve, reject) => {
++        canvas.toBlob(
++          (result) => (result ? resolve(result) : reject(new Error("Failed to render PDF page."))),
++          "image/png",
++        );
++      });
++      images.push(image);
++    }
++  } finally {
++    void loadingTask.destroy();
++  }
++
++  return images;
++}
+diff -ruN a/src/shared/types/domain.ts b/src/shared/types/domain.ts
+--- a/src/shared/types/domain.ts	2026-08-08 18:18:55.211952462 +0000
++++ b/src/shared/types/domain.ts	2026-08-08 18:18:55.358210794 +0000
+@@ -170,6 +170,28 @@
+   updatedAt: ISODate;
+ }
+ 
++/** How VaultContent.text was obtained. */
++export type VaultContentMethod = "text" | "pdf-text" | "ocr" | "pdf-ocr";
++
++/**
++ * Cached plain-text reading of a Vault file's actual contents, used by the
++ * AI assistant to answer questions about what a PDF/image contains (see
++ * `vaultReadContent` in ai/tools/localTools.ts). Lazily populated on first
++ * read, never on upload. One row per Vault item, keyed by vaultItemId.
++ *
++ * `sourceUpdatedAt` pins this cache to the `VaultItem.updatedAt` that was
++ * current at extraction time — a mismatch means the underlying blob has
++ * since changed (e.g. replaced), so the cache is stale and must be
++ * re-extracted rather than served.
++ */
++export interface VaultContent {
++  vaultItemId: ID;
++  text: string;
++  method: VaultContentMethod;
++  extractedAt: ISODate;
++  sourceUpdatedAt: ISODate;
++}
++
+ export type ChatRole = "user" | "assistant" | "system";
+ export type ChatMessageState = "complete" | "streaming" | "error";
+ 
