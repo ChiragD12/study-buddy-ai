@@ -1,3 +1,26 @@
+window.addEventListener("error", (event) => {
+  document.body.innerHTML = `
+    <pre style="
+      white-space:pre-wrap;
+      padding:20px;
+      color:red;
+      background:white;
+      font:14px monospace;
+    ">${event.message}\n\n${event.filename}:${event.lineno}:${event.colno}</pre>
+  `;
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  document.body.innerHTML = `
+    <pre style="
+      white-space:pre-wrap;
+      padding:20px;
+      color:red;
+      background:white;
+      font:14px monospace;
+    ">Unhandled rejection:\n\n${String(event.reason)}</pre>
+  `;
+});
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
