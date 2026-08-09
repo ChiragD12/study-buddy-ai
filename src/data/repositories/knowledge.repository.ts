@@ -58,10 +58,21 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
     const db = getDb();
     const normalized: CurrentAffairsItem[] = [];
     for (const item of items.map(normalizeItem)) {
-      const existing = item.sourceUrl
-        ? await db.currentAffairs.where("sourceUrl").equals(item.sourceUrl).first()
-        : undefined;
-      normalized.push(existing ? { ...item, id: existing.id } : item);
+      const existing =
+        (await db.currentAffairs.get(item.id)) ??
+        (item.sourceUrl
+          ? await db.currentAffairs.where("sourceUrl").equals(item.sourceUrl).first()
+          : undefined);
+      normalized.push(
+        existing
+          ? {
+              ...item,
+              id: existing.id,
+              savedAt: existing.savedAt,
+              readAt: existing.readAt,
+            }
+          : item,
+      );
     }
     await db.currentAffairs.bulkPut(normalized);
   },

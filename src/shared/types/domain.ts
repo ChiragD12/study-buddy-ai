@@ -374,5 +374,7 @@ export interface AppSettings {
   aiProvider: "gemini" | "none";
   geminiModel: string;
   reduceMotion: boolean;
+  /** ISO timestamp of the last successful Current Affairs feed refresh. */
+  currentAffairsRefreshedAt?: ISODate | undefined;
   updatedAt: ISODate;
 }

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { currentAffairsProviders } from "@/features/current-affairs/provider";
 import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
 import { examRepository } from "@/data/repositories/exams.repository";
+import { settingsRepository } from "@/data/repositories/settings.repository";
+import { now } from "@/data/repositories/util";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,6 +19,9 @@ import {
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
 import { formatDate } from "@/shared/utils/format";
 import type { CurrentAffairsItem } from "@/shared/types/domain";
+
+/** How long a background refresh is skipped after a successful one. */
+const CURRENT_AFFAIRS_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
 
 export const Route = createFileRoute("/current-affairs")({
   head: () => ({
@@ -36,6 +41,7 @@ function CurrentAffairsPage() {
   const [source, setSource] = useState("");
   const [savedOnly, setSavedOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CurrentAffairsItem | null>(null);
   const provider = currentAffairsProviders.active();
   const categories = useMemo(
@@ -62,28 +68,53 @@ function CurrentAffairsPage() {
     if (selected) void currentAffairsRepository.markRead(selected.id);
   }, [selected]);
 
-  async function refresh() {
+  async function refresh(options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
     if (!provider) {
-      toast.error(
-        "No feed is configured yet. Add a verified public RSS or Atom URL to the feed catalogue.",
-      );
+      if (!silent)
+        toast.error(
+          "No feed is configured yet. Add a verified public RSS or Atom URL to the feed catalogue.",
+        );
       return;
     }
     setRefreshing(true);
     try {
       const incoming = await provider.fetchItems({ exams: exams ?? [], limit: 60 });
       await currentAffairsRepository.saveMany(incoming);
-      toast.success(`Refreshed ${incoming.length} current-affairs items`);
+      await settingsRepository.update({ currentAffairsRefreshedAt: now() });
+      setRefreshError(null);
+      if (!silent) toast.success(`Refreshed ${incoming.length} current-affairs items`);
     } catch (error) {
-      toast.error(
+      const message =
         error instanceof Error
           ? error.message
-          : "Couldn't refresh current affairs. Previously downloaded articles are still available.",
-      );
+          : "Couldn't refresh current affairs. Previously downloaded articles are still available.";
+      setRefreshError(message);
+      if (!silent) toast.error(message);
     } finally {
       setRefreshing(false);
     }
   }
+
+  // Cached articles render immediately from IndexedDB (see `stored` above).
+  // On top of that, silently refresh in the background at most once per
+  // cache interval — never on every render, never blocking the cached list.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const settings = await settingsRepository.get();
+      const lastRefresh = settings.currentAffairsRefreshedAt;
+      const stale =
+        !lastRefresh ||
+        Date.now() - new Date(lastRefresh).getTime() > CURRENT_AFFAIRS_REFRESH_INTERVAL_MS;
+      if (stale && !cancelled) await refresh({ silent: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount; `refresh` closes over the latest provider/exams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <PageContainer>
@@ -105,6 +136,10 @@ function CurrentAffairsPage() {
         <NotImplementedNote>
           No verified public feed is configured yet. Previously downloaded articles remain available
           offline.
+        </NotImplementedNote>
+      ) : refreshError ? (
+        <NotImplementedNote>
+          {refreshError} Previously downloaded articles remain available offline.
         </NotImplementedNote>
       ) : null}
       <div className="mt-5 space-y-3">
