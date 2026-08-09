@@ -1,10 +1,17 @@
 import type { ApiRequest, ApiResponse } from "../_lib/http.js";
-import { jsonError, requireCronSecret, requirePost } from "../_lib/http.js";
+import { jsonError, requireCronSecret } from "../_lib/http.js";
 import { sendPushNotification } from "../_lib/push.js";
 import { subscriptionStore } from "../_lib/subscriptionStore.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse): Promise<void> {
-  if (!requirePost(request, response) || !requireCronSecret(request, response)) return;
+  // cron-job.org invokes this endpoint with GET; POST is also still accepted.
+  // `requirePost` (in http.ts) only allows POST, so the method check is done
+  // inline here rather than changing that shared helper.
+  if (request.method !== "GET" && request.method !== "POST") {
+    jsonError(response, 405, "GET or POST required.");
+    return;
+  }
+  if (!requireCronSecret(request, response)) return;
   let subscription;
   try {
     subscription = await subscriptionStore.get();
