@@ -15,8 +15,14 @@
 
 import { newId } from "@/data/repositories/util";
 import { vaultRepository } from "@/data/repositories/vault.repository";
+import { classifyVaultSubject } from "@/features/assistant/vaultClassification";
 import type { AIAttachment } from "@/ai/types";
-import type { ChatAttachmentKind, ChatAttachmentRef, ID } from "@/shared/types/domain";
+import type {
+  ChatAttachmentKind,
+  ChatAttachmentRef,
+  ID,
+  VaultSubject,
+} from "@/shared/types/domain";
 
 export class AttachmentError extends Error {
   constructor(message: string) {
@@ -25,8 +31,12 @@ export class AttachmentError extends Error {
   }
 }
 
-/** Per-file cap. Kept well under Gemini's inline-request payload limits, with room for several attachments per message. */
-export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+/** Per-kind file size caps. */
+export const MAX_ATTACHMENT_BYTES_BY_KIND: Record<ChatAttachmentKind, number> = {
+  image: 10 * 1024 * 1024,
+  pdf: 50 * 1024 * 1024,
+  text: 10 * 1024 * 1024,
+};
 
 const MIME_TO_KIND: Record<string, ChatAttachmentKind> = {
   "image/png": "image",
@@ -74,12 +84,13 @@ export function describeAttachment(file: File): PendingAttachment {
     };
   }
 
-  if (file.size > MAX_ATTACHMENT_BYTES) {
+  const maxBytes = MAX_ATTACHMENT_BYTES_BY_KIND[kind];
+  if (file.size > maxBytes) {
     return {
       localId,
       file,
       kind: null,
-      error: `File is too large (max ${Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))} MB).`,
+      error: `File is too large (max ${Math.round(maxBytes / (1024 * 1024))} MB).`,
     };
   }
 
@@ -96,13 +107,42 @@ export function revokeAttachmentPreview(attachment: PendingAttachment): void {
 }
 
 /**
+ * Best-effort text for classification purposes only — never used as the
+ * stored/extracted content. Text files are read directly (cheap, no lazy
+ * deps). PDFs/images go through the existing lazy Vault extraction pipeline
+ * (`ai/context/vaultContent.ts`, dynamically imported here so OCR/pdf-extract
+ * still never enter the initial module graph). Any failure here just means
+ * classification falls back to filename + accompanying message — the saved
+ * file itself is never affected.
+ */
+async function contentForClassification(
+  vaultItemId: ID,
+  kind: ChatAttachmentKind,
+  file: File,
+): Promise<string | undefined> {
+  try {
+    if (kind === "text") return await file.text();
+    const { getVaultContent } = await import("@/ai/context/vaultContent");
+    const { text } = await getVaultContent(vaultItemId);
+    return text;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Persists validated pending attachments as Vault items (reusing the
- * existing Vault blob table — no new storage) and returns the metadata refs
- * to attach to the outgoing ChatMessage. Invalid (kind === null) entries are
- * skipped; callers should already have prevented sending with any present.
+ * existing Vault blob table — no new storage), classifies each into the
+ * `VaultSubject` taxonomy (see `vaultClassification.ts`) and sets it on the
+ * Vault item, then returns the metadata refs to attach to the outgoing
+ * ChatMessage. Invalid (kind === null) entries are skipped; callers should
+ * already have prevented sending with any present. Classification never
+ * blocks or reverts the save — the original file is always kept as-is even
+ * when a subject can't be determined (left "Uncategorized").
  */
 export async function storeAttachments(
   attachments: PendingAttachment[],
+  accompanyingText?: string,
 ): Promise<ChatAttachmentRef[]> {
   const refs: ChatAttachmentRef[] = [];
   for (const attachment of attachments) {
@@ -112,6 +152,24 @@ export async function storeAttachments(
         kind: attachment.kind,
         tags: ["chat-attachment"],
       });
+
+      // Classification is best-effort and must never undo or block the save
+      // above — the original file is already safely in the Vault by now.
+      // Items that can't be classified simply stay without a `subject`
+      // (shown under "Uncategorized" in the Vault) rather than guessing.
+      let subject: VaultSubject | null = null;
+      try {
+        const content = await contentForClassification(item.id, attachment.kind, attachment.file);
+        subject = await classifyVaultSubject({
+          filename: attachment.file.name,
+          ...(accompanyingText !== undefined ? { accompanyingText } : {}),
+          ...(content !== undefined ? { content } : {}),
+        });
+        if (subject) await vaultRepository.update(item.id, { subject });
+      } catch {
+        subject = null;
+      }
+
       refs.push({
         id: newId(),
         vaultItemId: item.id,
@@ -119,6 +177,7 @@ export async function storeAttachments(
         mimeType: attachment.file.type,
         sizeBytes: attachment.file.size,
         kind: attachment.kind,
+        ...(subject ? { subject } : {}),
       });
     } catch (cause) {
       throw new AttachmentError(

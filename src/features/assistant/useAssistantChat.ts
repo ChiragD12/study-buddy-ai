@@ -166,7 +166,10 @@ export function useAssistantChat() {
       let attachmentRefs: ChatMessage["attachments"];
       if (files.length) {
         try {
-          const stored = await storeAttachments(files.map((file) => describeAttachment(file)));
+          const stored = await storeAttachments(
+            files.map((file) => describeAttachment(file)),
+            trimmed,
+          );
           if (stored.length) attachmentRefs = stored;
         } catch (cause) {
           setError(

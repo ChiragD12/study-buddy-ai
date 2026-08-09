@@ -1,6 +1,7 @@
 import { daysUntil } from "@/ai/context/assistantContext";
 import { verifyNote } from "@/ai/context/noteVerification";
 import { getVaultContent, VaultContentUnavailableError } from "@/ai/context/vaultContent";
+import { classifyVaultSubject } from "@/features/assistant/vaultClassification";
 import { examRepository } from "@/data/repositories/exams.repository";
 import { studyPlanRepository } from "@/data/repositories/knowledge.repository";
 import { currentAffairsRepository } from "@/data/repositories/knowledge.repository";
@@ -10,7 +11,8 @@ import { vaultRepository } from "@/data/repositories/vault.repository";
 import { writingRepository } from "@/data/repositories/writing.repository";
 import { toolRegistry } from "@/ai/tools/registry";
 import type { AITool } from "@/ai/types";
-import type { ExamPriority, VaultKind } from "@/shared/types/domain";
+import { VAULT_SUBJECTS } from "@/shared/types/domain";
+import type { ExamPriority, VaultKind, VaultSubject } from "@/shared/types/domain";
 
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: "object",
@@ -495,14 +497,21 @@ const tools: AITool[] = [
   {
     name: "vaultSave",
     description:
-      "Save supplied text as a local Vault text file. On success, returns " +
-      "{ saved: 1, results: [item] }; the saved count is always 1 for this tool " +
-      "(it saves exactly one file per call). On failure, returns { saved: 0, error }.",
+      'Save supplied text as a local Vault text file (kind: "text", shown under the Notes tab) — ' +
+      "the text is stored exactly as given, never replaced with a summary. Use this to save " +
+      'substantial study material the user pasted or wrote in chat (e.g. "here are my History ' +
+      'notes"), not for a general AI-generated summary unless the user explicitly asked for one ' +
+      `to be saved. Pass \`subject\` as one of: ${VAULT_SUBJECTS.join(", ")} when the content ` +
+      "clearly fits one; if none fits, omit it and it will be classified automatically where " +
+      "possible, or left Uncategorized. On success, returns { saved: 1, results: [item] }; the " +
+      "saved count is always 1 for this tool (it saves exactly one file per call). On failure, " +
+      "returns { saved: 0, error }.",
     mutates: true,
     parameters: object(
       {
         name: string("File name"),
         content: string("Text content"),
+        subject: { type: "string", enum: [...VAULT_SUBJECTS] },
         tags: { type: "array", items: { type: "string" } },
         examId: string("Optional exam id"),
       },
@@ -511,6 +520,17 @@ const tools: AITool[] = [
     async execute(args: ToolArgs) {
       if (typeof args.name !== "string" || typeof args.content !== "string")
         return { saved: 0, error: "A file name and text content are required." };
+      const givenSubject =
+        typeof args.subject === "string" &&
+        (VAULT_SUBJECTS as readonly string[]).includes(args.subject)
+          ? (args.subject as VaultSubject)
+          : null;
+      // If the model didn't already identify a subject, fall back to the
+      // same AI classifier attachments use, so plain-text notes saved via
+      // chat end up filed the same way as attached files.
+      const subject =
+        givenSubject ??
+        (await classifyVaultSubject({ filename: args.name, content: args.content }));
       const item = await vaultRepository.addBlob(
         args.name,
         new Blob([args.content], { type: "text/plain" }),
@@ -518,6 +538,7 @@ const tools: AITool[] = [
           kind: "text",
           tags: Array.isArray(args.tags) ? (args.tags as string[]) : [],
           examId: typeof args.examId === "string" ? args.examId : null,
+          ...(subject ? { subject } : {}),
         },
       );
       // Mirror the { results: [...] } shape every other vault tool returns
@@ -525,7 +546,10 @@ const tools: AITool[] = [
       // convention to read from instead of inferring a count from a bare
       // { item } object — that mismatch was the source of the tool reporting
       // "Saved 0 file(s)" even when the save succeeded.
-      return { saved: 1, results: [{ id: item.id, name: item.name, kind: item.kind }] };
+      return {
+        saved: 1,
+        results: [{ id: item.id, name: item.name, kind: item.kind, subject: item.subject }],
+      };
     },
   },
   {

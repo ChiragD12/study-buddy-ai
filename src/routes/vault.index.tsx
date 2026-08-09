@@ -15,6 +15,7 @@ export const Route = createFileRoute("/vault/")({
     <VaultView
       title="All Files"
       description="Imported notes, generated sheets and saved material — stored locally in IndexedDB."
+      subjectTabs
     />
   ),
 });

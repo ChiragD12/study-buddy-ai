@@ -1,11 +1,18 @@
 import { getDb } from "@/data/db/db";
 import { newId, now, timestamps } from "@/data/repositories/util";
-import type { ID, VaultItem, VaultKind } from "@/shared/types/domain";
+import type { ID, VaultItem, VaultKind, VaultSubject } from "@/shared/types/domain";
 
 export interface VaultFilter {
   query?: string;
   kind?: VaultKind | "all";
   favoritesOnly?: boolean;
+  /**
+   * Filter by subject tab (see `features/vault/VaultView.tsx`).
+   * "uncategorized" matches items with no `subject` set — existing items
+   * from before this field existed remain valid and appear there rather
+   * than being excluded.
+   */
+  subject?: VaultSubject | "uncategorized" | "all";
 }
 
 export interface VaultRepository {
@@ -41,6 +48,11 @@ export const vaultRepository: VaultRepository = {
       items = items.filter((item) => item.kind === filter.kind);
     }
     if (filter?.favoritesOnly) items = items.filter((item) => item.favorite);
+    if (filter?.subject && filter.subject !== "all") {
+      items = items.filter((item) =>
+        filter.subject === "uncategorized" ? !item.subject : item.subject === filter.subject,
+      );
+    }
     const q = filter?.query?.trim().toLowerCase();
     if (q) {
       items = items.filter((item) =>
@@ -69,6 +81,7 @@ export const vaultRepository: VaultRepository = {
       tags: meta?.tags ?? [],
       examId: meta?.examId ?? null,
       favorite: meta?.favorite ?? false,
+      subject: meta?.subject,
       blobKey: newId(),
       // Only meaningful for kind === "pdf" (see VaultPdfSourceType); left
       // undefined for everything else, and for PDFs whose caller doesn't

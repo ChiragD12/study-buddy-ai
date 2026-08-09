@@ -123,6 +123,47 @@ export interface WritingAttempt {
 export type VaultKind = "pdf" | "image" | "text" | "note-export" | "other";
 
 /**
+ * Fixed subject taxonomy for the Vault's subject tabs (see
+ * `features/vault/VaultView.tsx`). Metadata on `VaultItem` only — subject
+ * does not change how/where a file is physically stored.
+ */
+export type VaultSubject =
+  | "history"
+  | "polity"
+  | "geography"
+  | "economy"
+  | "environment"
+  | "science-tech"
+  | "current-affairs"
+  | "haryana"
+  | "punjab";
+
+/** Display order for subject tabs. */
+export const VAULT_SUBJECTS: VaultSubject[] = [
+  "history",
+  "polity",
+  "geography",
+  "economy",
+  "environment",
+  "science-tech",
+  "current-affairs",
+  "haryana",
+  "punjab",
+];
+
+export const VAULT_SUBJECT_LABELS: Record<VaultSubject, string> = {
+  history: "History",
+  polity: "Polity",
+  geography: "Geography",
+  economy: "Economy",
+  environment: "Environment",
+  "science-tech": "Science & Technology",
+  "current-affairs": "Current Affairs",
+  haryana: "Haryana",
+  punjab: "Punjab",
+};
+
+/**
  * How a Vault PDF's bytes came to exist. Only meaningful for
  * `kind === "pdf"`; this is what the AI PDF editor (see
  * features/vault/VaultPdfView.tsx) uses to decide whether an
@@ -155,6 +196,14 @@ export interface VaultItem {
    * (treated the same as "external": not assumed editable).
    */
   sourceType?: VaultPdfSourceType | undefined;
+  /**
+   * Best-effort subject classification (see `VaultSubject`), used by the
+   * Vault's subject tabs. Undefined for items that predate this field or
+   * that automatic classification couldn't confidently place — those items
+   * remain fully valid and are shown under the "Uncategorized" tab rather
+   * than being hidden or forced into a guessed subject.
+   */
+  subject?: VaultSubject | undefined;
   createdAt: ISODate;
   updatedAt: ISODate;
 }
@@ -241,6 +290,14 @@ export interface ChatAttachmentRef {
   mimeType: string;
   sizeBytes: number;
   kind: ChatAttachmentKind;
+  /**
+   * Best-effort subject classification applied when this attachment was
+   * saved to the Vault (see `features/assistant/vaultClassification.ts`).
+   * The same value is also written into the underlying VaultItem's
+   * `subject` field. Absent when classification didn't find a confident
+   * match — the file is still saved in full, just left "Uncategorized".
+   */
+  subject?: VaultSubject | undefined;
 }
 
 export interface ChatMessage {

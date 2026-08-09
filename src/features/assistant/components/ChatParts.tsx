@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
-import type { ChatMessage } from "@/shared/types/domain";
+import { VAULT_SUBJECT_LABELS, type ChatMessage } from "@/shared/types/domain";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/shared/utils/format";
 import type { ChatStatus } from "@/features/assistant/useAssistantChat";
@@ -38,7 +38,13 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
                 ) : (
                   <FileText className="size-3 shrink-0" aria-hidden="true" />
                 )}
-                <span className="truncate">{attachment.name}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{attachment.name}</span>
+                  <span className="block truncate opacity-75">
+                    Saved to Vault
+                    {attachment.subject ? ` · ${VAULT_SUBJECT_LABELS[attachment.subject]}` : ""}
+                  </span>
+                </span>
               </li>
             ))}
           </ul>
@@ -151,7 +157,9 @@ function AttachmentChip({
 
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-foreground">{attachment.file.name}</span>
-        <span className={cn("block truncate", hasError ? "text-destructive" : "text-muted-foreground")}>
+        <span
+          className={cn("block truncate", hasError ? "text-destructive" : "text-muted-foreground")}
+        >
           {hasError ? attachment.error : formatBytes(attachment.file.size)}
         </span>
       </span>
@@ -210,7 +218,10 @@ export function ChatComposer({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !hasContent) return;
-    onSend(value, validFiles.map((attachment) => attachment.file));
+    onSend(
+      value,
+      validFiles.map((attachment) => attachment.file),
+    );
     setValue("");
     attachments.forEach(revokeAttachmentPreview);
     setAttachments([]);
