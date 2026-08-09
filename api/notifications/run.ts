@@ -1,10 +1,17 @@
 import type { ApiRequest, ApiResponse } from "../_lib/http";
 import { jsonError, requireCronSecret, requirePost } from "../_lib/http";
-import { configuredSubscription, sendPushNotification } from "../_lib/push";
+import { sendPushNotification } from "../_lib/push";
+import { subscriptionStore } from "../_lib/subscriptionStore";
 
 export default async function handler(request: ApiRequest, response: ApiResponse): Promise<void> {
   if (!requirePost(request, response) || !requireCronSecret(request, response)) return;
-  const subscription = configuredSubscription();
+  let subscription;
+  try {
+    subscription = await subscriptionStore.get();
+  } catch {
+    jsonError(response, 503, "Subscription storage is not configured for this deployment.");
+    return;
+  }
   if (!subscription) {
     response.status(200).json({ ok: true, status: "subscription-storage-not-configured" });
     return;

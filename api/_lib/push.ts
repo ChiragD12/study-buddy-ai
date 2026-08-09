@@ -26,16 +26,3 @@ export async function sendPushNotification(
   webpush.setVapidDetails(subject, publicKey, privateKey);
   await webpush.sendNotification(subscription, JSON.stringify(payload));
 }
-
-export function configuredSubscription(): PushSubscriptionJSON | null {
-  const serialized = process.env["PUSH_SUBSCRIPTION_JSON"];
-  if (!serialized) return null;
-  try {
-    const subscription = JSON.parse(serialized) as PushSubscriptionJSON;
-    if (!subscription.endpoint || !subscription.keys?.auth || !subscription.keys.p256dh)
-      return null;
-    return { ...subscription, expirationTime: subscription.expirationTime ?? null };
-  } catch {
-    return null;
-  }
-}
