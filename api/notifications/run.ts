@@ -215,7 +215,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   } catch (error) {
     console.error("[notifications/run] Failed to persist processed articles:", error);
   }
-
+  console.log(
+    `[notifications/run] Summary: feeds=${feedsChecked} fetched=${articlesFetched} new=${newArticles.length} classified=${classified} important=${important} sent=${notificationsSent}`,
+  );
   response.status(200).json({
     ok: true,
     feedsChecked,
