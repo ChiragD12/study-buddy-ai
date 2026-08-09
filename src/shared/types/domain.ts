@@ -266,8 +266,122 @@ export interface VaultContent {
   sourceUpdatedAt: ISODate;
 }
 
-export type ChatRole = "user" | "assistant" | "system";
+/**
+ * Fixed topic taxonomy for Current Affairs GK classification (see
+ * ai/context/currentAffairsClassification.ts). Deliberately reuses the
+ * exact `VaultSubject` string values above wherever the two taxonomies
+ * overlap (history, polity, geography, economy, environment, science-tech,
+ * haryana, punjab) so an article's topic and a Vault item's subject share
+ * one vocabulary for those categories, rather than the app maintaining two
+ * competing subject lists. The remaining values cover GK topics Vault's
+ * subject tabs don't need (Vault is for saved files, not news topics).
+ */
+export type CurrentAffairsTopic =
+  | "space"
+  | "defence"
+  | "sports"
+  | "science-tech"
+  | "economy"
+  | "polity"
+  | "environment"
+  | "international"
+  | "haryana"
+  | "punjab"
+  | "history"
+  | "geography"
+  | "society"
+  | "agriculture"
+  | "government-schemes"
+  | "reports-indices"
+  | "awards-honours"
+  | "important-personalities"
+  | "disaster-climate"
+  | "other-general";
+
+export const CURRENT_AFFAIRS_TOPICS: CurrentAffairsTopic[] = [
+  "space",
+  "defence",
+  "sports",
+  "science-tech",
+  "economy",
+  "polity",
+  "environment",
+  "international",
+  "haryana",
+  "punjab",
+  "history",
+  "geography",
+  "society",
+  "agriculture",
+  "government-schemes",
+  "reports-indices",
+  "awards-honours",
+  "important-personalities",
+  "disaster-climate",
+  "other-general",
+];
+
+export const CURRENT_AFFAIRS_TOPIC_LABELS: Record<CurrentAffairsTopic, string> = {
+  space: "Space",
+  defence: "Defence",
+  sports: "Sports",
+  "science-tech": "Science & Technology",
+  economy: "Economy",
+  polity: "Polity",
+  environment: "Environment",
+  international: "International",
+  haryana: "Haryana",
+  punjab: "Punjab",
+  history: "History",
+  geography: "Geography",
+  society: "Society",
+  agriculture: "Agriculture",
+  "government-schemes": "Government Schemes",
+  "reports-indices": "Reports & Indices",
+  "awards-honours": "Awards & Honours",
+  "important-personalities": "Important Personalities",
+  "disaster-climate": "Disaster / Climate",
+  "other-general": "Other / General",
+};
+
+export type GkImportanceLevel = "critical" | "important" | "useful" | "low";
+
+/**
+ * Bump when the classification prompt/logic changes meaningfully enough
+ * that previously-classified articles should be reconsidered. Existing
+ * items whose `classification.version` doesn't match this are treated as
+ * unclassified by the classifier (see currentAffairsClassification.ts) —
+ * this is the only mechanism for invalidating past results; nothing
+ * reclassifies automatically just because a refresh happened.
+ */
+export const CURRENT_AFFAIRS_CLASSIFICATION_VERSION = 1;
+
+/**
+ * GK/exam-relevance classification for one Current Affairs article. Cached
+ * on the article itself (`CurrentAffairsItem.classification`) so it's
+ * available offline and is never recomputed just to render the page.
+ */
+export interface CurrentAffairsClassification {
+  primaryTopic: CurrentAffairsTopic;
+  secondaryTopics?: CurrentAffairsTopic[] | undefined;
+  /** 0–100. See GK_IMPORTANCE thresholds in currentAffairsClassification.ts. */
+  importanceScore: number;
+  importanceLevel: GkImportanceLevel;
+  examRelevant: boolean;
+  /**
+   * Whether this article currently qualifies for an important-current-affairs
+   * notification. Decision only — no notification is actually sent yet; the
+   * future notification system reads this field.
+   */
+  notificationEligible: boolean;
+  /** How the result was produced. A deterministic-filtered item never made an AI call. */
+  method: "ai" | "deterministic-filter";
+  classifiedAt: ISODate;
+  version: number;
+}
+
 export type ChatMessageState = "complete" | "streaming" | "error";
+export type ChatRole = "user" | "assistant" | "system";
 
 /**
  * File types the AI chat composer can attach. Mirrors what
@@ -348,6 +462,13 @@ export interface CurrentAffairsItem {
   relevanceScore?: number | undefined;
   savedAt?: ISODate | undefined;
   readAt?: ISODate | undefined;
+  /**
+   * GK/topic/importance classification (see CurrentAffairsClassification
+   * above). Undefined until the classifier processes this article — it
+   * remains a fully valid, displayable item either way; nothing in the UI
+   * should require this to be present.
+   */
+  classification?: CurrentAffairsClassification | undefined;
 }
 
 export interface StudyPlanEntry {

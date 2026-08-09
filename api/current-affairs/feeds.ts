@@ -44,6 +44,12 @@ const CURRENT_AFFAIRS_FEED_URLS: readonly string[] = [
   "https://indianexpress.com/section/upsc-current-affairs/feed/",
   "https://indianexpress.com/section/explained/feed/",
   "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=5",
+  "https://www.thehindu.com/news/national/feeder/default.rss",
+  "https://www.thehindu.com/news/international/feeder/default.rss",
+  "https://www.thehindu.com/sport/feeder/default.rss",
+  "https://www.thehindu.com/business/feeder/default.rss",
+  "https://www.thehindu.com/sci-tech/feeder/default.rss",
+  "https://www.thehindu.com/sci-tech/energy-and-environment/feeder/default.rss",
 ];
 
 interface NormalizedFeedItem {
@@ -188,8 +194,53 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max).trimEnd()}…`;
 }
 
+/**
+ * Recursively extracts all human-readable text from a parsed XML node, for
+ * use specifically by summary/description extraction (see `summarize` /
+ * `extractDescriptionSource` below). This is deliberately separate from
+ * `textOf` above, which other fields (guid, author, dates, links) rely on
+ * and which only unwraps the single-level `#text`/CDATA shapes those simple
+ * fields ever take — changing it would risk affecting logic outside summary
+ * extraction.
+ *
+ * Summary/description fields, unlike those simple fields, commonly arrive
+ * in shapes `textOf` does not unwrap:
+ *   - a plain string (handled the same as `textOf`)
+ *   - `{ "#text": ... }` (handled the same as `textOf`)
+ *   - arrays of either of the above (handled the same as `textOf`)
+ *   - a genuinely nested XML parser object — e.g. a feed that emits
+ *     `<description><p>...</p></description>` as real child elements
+ *     instead of an escaped string or CDATA blob, which fast-xml-parser
+ *     parses into `{ p: "..." }` (or deeper) with *no* top-level `#text`
+ *     key at all. `textOf` returns "" for this shape since it only looks
+ *     for `#text`/`__cdata`; this function instead walks every own
+ *     property of the node (skipping `@_`-prefixed attributes, which are
+ *     structural, not prose) and concatenates whatever text it finds at
+ *     any depth.
+ */
+function deepTextOf(node: unknown): string {
+  if (node === null || node === undefined) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) {
+    return node
+      .map((entry) => deepTextOf(entry))
+      .filter((text) => text.length > 0)
+      .join(" ");
+  }
+  if (typeof node === "object") {
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key.startsWith("@_")) continue; // attributes are structural, not prose text
+      const text = deepTextOf(value);
+      if (text) parts.push(text);
+    }
+    return parts.join(" ");
+  }
+  return "";
+}
+
 function summarize(html: unknown): string {
-  return truncate(htmlToPlainText(textOf(html)), MAX_SUMMARY_LENGTH);
+  return truncate(htmlToPlainText(deepTextOf(html)), MAX_SUMMARY_LENGTH);
 }
 
 /** Returns the first candidate whose extracted text is non-empty. */
@@ -197,6 +248,23 @@ function firstNonEmpty(...candidates: unknown[]): unknown {
   for (const candidate of candidates) {
     if (candidate === undefined || candidate === null) continue;
     if (textOf(candidate).trim()) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Same selection logic as `firstNonEmpty`, but used only for picking among
+ * summary/description candidate fields, where emptiness must be judged by
+ * `deepTextOf` rather than `textOf` — otherwise a candidate whose text only
+ * exists in a nested XML sub-element (see `deepTextOf` above) would be
+ * wrongly skipped as empty, and a later, worse candidate (or nothing) would
+ * be picked instead. Left as a separate function so `firstNonEmpty` itself
+ * — shared with non-summary logic like image extraction — is untouched.
+ */
+function firstNonEmptySummarySource(...candidates: unknown[]): unknown {
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null) continue;
+    if (deepTextOf(candidate).trim()) return candidate;
   }
   return undefined;
 }
@@ -354,7 +422,7 @@ function extractAuthor(item: Record<string, unknown>): string | undefined {
  * for feeds that only populate the full-body field.
  */
 function extractDescriptionSource(item: Record<string, unknown>): unknown {
-  return firstNonEmpty(
+  return firstNonEmptySummarySource(
     item["description"],
     item["summary"],
     item["content:encoded"],

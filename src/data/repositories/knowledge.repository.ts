@@ -1,6 +1,12 @@
 import { getDb } from "@/data/db/db";
 import { newId, now, timestamps } from "@/data/repositories/util";
-import type { CurrentAffairsItem, ID, StudyPlanEntry } from "@/shared/types/domain";
+import type {
+  CurrentAffairsClassification,
+  CurrentAffairsItem,
+  ID,
+  StudyPlanEntry,
+} from "@/shared/types/domain";
+import { CURRENT_AFFAIRS_CLASSIFICATION_VERSION } from "@/shared/types/domain";
 
 export interface CurrentAffairsRepository {
   list(): Promise<CurrentAffairsItem[]>;
@@ -9,6 +15,14 @@ export interface CurrentAffairsRepository {
   toggleSaved(id: ID): Promise<void>;
   markRead(id: ID): Promise<void>;
   clear(): Promise<void>;
+  /**
+   * Articles with no `classification` yet, or one stamped with an older
+   * `CURRENT_AFFAIRS_CLASSIFICATION_VERSION` — see
+   * ai/context/currentAffairsClassification.ts, the only consumer.
+   */
+  listUnclassified(): Promise<CurrentAffairsItem[]>;
+  /** Persists one article's GK classification result. No-op if the article no longer exists. */
+  saveClassification(id: ID, classification: CurrentAffairsClassification): Promise<void>;
 }
 
 function hash(value: string): string {
@@ -70,11 +84,20 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
               id: existing.id,
               savedAt: existing.savedAt,
               readAt: existing.readAt,
+              classification: existing.classification,
             }
           : item,
       );
     }
     await db.currentAffairs.bulkPut(normalized);
+    // Fire-and-forget: classify whatever is now new/unclassified. Dynamic
+    // import keeps this a one-way runtime edge (classification statically
+    // imports this repository, not the other way round) so the two modules
+    // don't form a static circular dependency. Never awaited — a refresh
+    // must not block on, or fail because of, an AI call.
+    void import("@/ai/context/currentAffairsClassification")
+      .then((module) => module.classifyNewCurrentAffairs())
+      .catch(() => {});
   },
   async toggleSaved(id) {
     const item = await getDb().currentAffairs.get(id);
@@ -87,6 +110,20 @@ export const currentAffairsRepository: CurrentAffairsRepository = {
   },
   async clear() {
     await getDb().currentAffairs.clear();
+  },
+  async listUnclassified() {
+    const items = await getDb().currentAffairs.toArray();
+    return items
+      .map(normalizeItem)
+      .filter(
+        (item) =>
+          !item.classification ||
+          item.classification.version !== CURRENT_AFFAIRS_CLASSIFICATION_VERSION,
+      );
+  },
+  async saveClassification(id, classification) {
+    if (await getDb().currentAffairs.get(id))
+      await getDb().currentAffairs.update(id, { classification });
   },
 };
 
