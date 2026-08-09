@@ -220,6 +220,29 @@ export interface VaultContent {
 export type ChatRole = "user" | "assistant" | "system";
 export type ChatMessageState = "complete" | "streaming" | "error";
 
+/**
+ * File types the AI chat composer can attach. Mirrors what
+ * `ai/context/vaultContent.ts` knows how to extract from — "image" and
+ * "pdf" go to Gemini as inline binary input, "text" is extracted and
+ * injected into the prompt as plain text (see attachments.ts).
+ */
+export type ChatAttachmentKind = "image" | "pdf" | "text";
+
+/**
+ * Metadata-only reference to a chat attachment. The actual bytes live in
+ * the Vault (see data/repositories/vault.repository.ts) — chat messages
+ * never carry base64 payloads, only a pointer to the stored VaultItem.
+ */
+export interface ChatAttachmentRef {
+  id: ID;
+  /** The Vault item holding the actual file bytes. */
+  vaultItemId: ID;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: ChatAttachmentKind;
+}
+
 export interface ChatMessage {
   id: ID;
   conversationId: ID;
@@ -229,6 +252,8 @@ export interface ChatMessage {
   error?: string | undefined;
   /** Placeholder for artifacts (PDF, image sheet, note draft) produced by tools. */
   artifacts?: ChatArtifact[] | undefined;
+  /** Files the user attached to this message, if any. See ChatAttachmentRef. */
+  attachments?: ChatAttachmentRef[] | undefined;
   createdAt: ISODate;
 }
 

@@ -3,11 +3,24 @@
  * swapping Gemini for another provider must not require UI changes.
  */
 
+/**
+ * Inline binary attachment (image or PDF) for a single AIMessage turn.
+ * `data` is base64-encoded (no `data:` URL prefix). Providers that support
+ * multimodal input send this as inline binary content; providers that
+ * don't must ignore it rather than error.
+ */
+export interface AIAttachment {
+  mimeType: string;
+  data: string;
+}
+
 export interface AIMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   toolCalls?: AIToolCall[];
   toolResults?: AIToolResult[];
+  /** Images/PDFs attached to this turn. See AIAttachment. Text attachments are inlined into `content` instead. */
+  attachments?: AIAttachment[];
   /**
    * Opaque, provider-specific raw representation of this turn's original
    * response content (e.g. Gemini's exact `candidate.content.parts` array),

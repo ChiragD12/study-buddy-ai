@@ -13,6 +13,7 @@ const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 interface GeminiPart {
   text?: string;
+  inlineData?: { mimeType?: string; data?: string };
   functionCall?: { id?: string; name?: string; args?: Record<string, unknown> };
   functionResponse?: { id?: string; name?: string; response?: unknown };
   /**
@@ -61,6 +62,17 @@ function toContents(messages: AIMessage[]) {
       // preserve both instead of dropping text whenever calls are present.
       if (message.content) {
         parts.push({ text: message.content });
+      }
+
+      // Images/PDFs go to Gemini as inline binary parts. Text attachments
+      // are already folded into `message.content` before this point (see
+      // features/assistant/attachments.ts), so they never appear here.
+      if (message.attachments?.length) {
+        for (const attachment of message.attachments) {
+          parts.push({
+            inlineData: { mimeType: attachment.mimeType, data: attachment.data },
+          });
+        }
       }
 
       if (message.toolCalls?.length) {

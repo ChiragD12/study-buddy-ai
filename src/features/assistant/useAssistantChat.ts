@@ -8,9 +8,17 @@ import {
   type PendingToolAction,
   type ToolActivity,
 } from "@/features/assistant/orchestrator";
+import {
+  AttachmentError,
+  describeAttachment,
+  resolveAttachmentsForAI,
+  storeAttachments,
+} from "@/features/assistant/attachments";
 import { chatRepository } from "@/data/repositories/chat.repository";
 import { isBrowser } from "@/data/db/db";
 import type { ChatMessage } from "@/shared/types/domain";
+
+const NO_TEXT_PLACEHOLDER = "Please analyze the attached file(s).";
 
 export type ChatStatus = "idle" | "submitted" | "streaming";
 
@@ -29,6 +37,26 @@ function activityFor(names: string[]): string {
     return "Checking your saved current affairs…";
   if (names.some((name) => name.startsWith("progress"))) return "Checking your study progress…";
   return "Working with your study data…";
+}
+
+/**
+ * Turns a persisted ChatMessage into the shape the AI provider needs.
+ * Image/PDF attachments are resolved to inline binary parts; text
+ * attachments are extracted and folded into the message text. This only
+ * ever touches the outgoing request — the persisted message (and what's
+ * shown in the UI) keeps the user's original short text, never the full
+ * extracted content.
+ */
+async function toAIMessage(message: ChatMessage): Promise<AIMessage> {
+  if (!message.attachments?.length) {
+    return { role: message.role, content: message.content };
+  }
+  const { attachments, extractedText } = await resolveAttachmentsForAI(message.attachments);
+  return {
+    role: message.role,
+    content: extractedText ? `${message.content}\n\n${extractedText}` : message.content,
+    ...(attachments.length ? { attachments } : {}),
+  };
 }
 
 /**
@@ -130,16 +158,32 @@ export function useAssistantChat() {
   }, [completeMessage, messages, pendingMessageId]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, files: File[] = []) => {
       const trimmed = text.trim();
-      if (!trimmed || !conversationId || status !== "idle") return;
+      if ((!trimmed && files.length === 0) || !conversationId || status !== "idle") return;
       setError(null);
+
+      let attachmentRefs: ChatMessage["attachments"];
+      if (files.length) {
+        try {
+          const stored = await storeAttachments(files.map((file) => describeAttachment(file)));
+          if (stored.length) attachmentRefs = stored;
+        } catch (cause) {
+          setError(
+            cause instanceof AttachmentError
+              ? cause.message
+              : "Couldn't save the attached file(s). Please try again.",
+          );
+          return;
+        }
+      }
 
       const userMessage = await chatRepository.appendMessage({
         conversationId,
         role: "user",
-        content: trimmed,
+        content: trimmed || NO_TEXT_PLACEHOLDER,
         state: "complete",
+        ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
       });
       setMessages((current) => [...current, userMessage]);
       setStatus("submitted");
@@ -165,11 +209,12 @@ export function useAssistantChat() {
 
       try {
         const context = await buildAssistantContext();
+        const priorMessages = (await chatRepository.listMessages(conversationId)).filter(
+          (message) => message.state === "complete",
+        );
         const history: AIMessage[] = [
           systemPrompt(context),
-          ...(await chatRepository.listMessages(conversationId))
-            .filter((message) => message.state === "complete")
-            .map((message) => ({ role: message.role, content: message.content })),
+          ...(await Promise.all(priorMessages.map(toAIMessage))),
         ];
         setStatus("streaming");
         const result = await runAssistantTools(provider, history, false, (names) => {

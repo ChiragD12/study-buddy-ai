@@ -1,5 +1,6 @@
 import { getDb } from "@/data/db/db";
 import { newId, now, timestamps } from "@/data/repositories/util";
+import { vaultRepository } from "@/data/repositories/vault.repository";
 import type { ChatMessage, Conversation, ID } from "@/shared/types/domain";
 
 export interface ChatRepository {
@@ -25,10 +26,22 @@ export const chatRepository: ChatRepository = {
     await getDb().conversations.update(id, { title, updatedAt: now() });
   },
   async removeConversation(id) {
+    const messages = await getDb().messages.where("conversationId").equals(id).toArray();
+    const attachmentVaultItemIds = messages.flatMap(
+      (message) => message.attachments?.map((attachment) => attachment.vaultItemId) ?? [],
+    );
     await getDb().transaction("rw", getDb().conversations, getDb().messages, async () => {
       await getDb().conversations.delete(id);
       await getDb().messages.where("conversationId").equals(id).delete();
     });
+    // Best-effort cleanup of the Vault items backing this conversation's
+    // attachments. Failures here shouldn't block the conversation delete,
+    // which has already committed above.
+    await Promise.all(
+      attachmentVaultItemIds.map((vaultItemId) =>
+        vaultRepository.remove(vaultItemId).catch(() => undefined),
+      ),
+    );
   },
   async listMessages(conversationId) {
     const messages = await getDb()
