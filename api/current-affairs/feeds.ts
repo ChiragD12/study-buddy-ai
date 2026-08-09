@@ -283,7 +283,12 @@ function extractImage(item: Record<string, unknown>): string | undefined {
 function extractLink(item: Record<string, unknown>): string {
   const link = item["link"];
   if (typeof link === "string") return link.trim();
-  if (link && typeof link === "object" && !Array.isArray(link) && "#text" in (link as Record<string, unknown>)) {
+  if (
+    link &&
+    typeof link === "object" &&
+    !Array.isArray(link) &&
+    "#text" in (link as Record<string, unknown>)
+  ) {
     return textOf(link);
   }
   if (Array.isArray(link)) {
@@ -292,7 +297,8 @@ function extractLink(item: Record<string, unknown>): string {
     // Prefer a proper Atom-style link object (rel="alternate", or the first
     // one with no rel at all — both conventionally the canonical article URL).
     const objectEntries = entries.filter(
-      (entry): entry is Record<string, unknown> => typeof entry === "object" && !Array.isArray(entry),
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && !Array.isArray(entry),
     );
     const alternate = objectEntries.find((entry) => textOf(entry["@_rel"]) === "alternate");
     const first = objectEntries.find((entry) => !entry["@_rel"] || textOf(entry["@_rel"]) === "");

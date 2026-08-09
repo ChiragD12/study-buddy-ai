@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Bookmark, ExternalLink, Newspaper, RefreshCw, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bookmark, Newspaper, RefreshCw, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 
 import { currentAffairsProviders } from "@/features/current-affairs/provider";
@@ -42,7 +42,6 @@ function CurrentAffairsPage() {
   const [savedOnly, setSavedOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<CurrentAffairsItem | null>(null);
   const provider = currentAffairsProviders.active();
   const categories = useMemo(
     () => [...new Set((stored ?? []).flatMap((item) => item.categories ?? []))].sort(),
@@ -63,10 +62,6 @@ function CurrentAffairsPage() {
       (!savedOnly || Boolean(item.savedAt))
     );
   });
-
-  useEffect(() => {
-    if (selected) void currentAffairsRepository.markRead(selected.id);
-  }, [selected]);
 
   async function refresh(options?: { silent?: boolean }) {
     const silent = options?.silent ?? false;
@@ -125,6 +120,12 @@ function CurrentAffairsPage() {
   }, []);
 
   const hasCachedArticles = Boolean(stored && stored.length > 0);
+
+  /** Marks the article read, then opens the original URL in a new tab/window. */
+  function openArticle(item: CurrentAffairsItem) {
+    void currentAffairsRepository.markRead(item.id);
+    if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <PageContainer>
@@ -222,20 +223,13 @@ function CurrentAffairsPage() {
               <ArticleCard
                 key={item.id}
                 item={item}
-                onOpen={() => setSelected(item)}
+                onOpen={() => openArticle(item)}
                 onToggleSave={() => void currentAffairsRepository.toggleSaved(item.id)}
               />
             ))}
           </ul>
         )}
       </div>
-      {selected ? (
-        <ArticleDetail
-          item={selected}
-          onClose={() => setSelected(null)}
-          onToggleSave={() => void currentAffairsRepository.toggleSaved(selected.id)}
-        />
-      ) : null}
     </PageContainer>
   );
 }
@@ -252,38 +246,54 @@ function ArticleCard({
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = Boolean(item.imageUrl) && !imageFailed;
 
+  // The whole card opens the original article externally. It's a
+  // non-button element (an <li>) acting as a link — role="link" plus
+  // Enter-key handling — specifically so the Save control below can stay
+  // a real <button> without nesting one interactive element inside
+  // another. Save's own click handler stops propagation so it never
+  // triggers the card's open behavior.
+  function handleKeyDown(event: KeyboardEvent<HTMLLIElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onOpen();
+    }
+  }
+
   return (
-    <li className="surface-card p-4">
+    <li
+      role="link"
+      tabIndex={0}
+      aria-label={item.title}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+      className="surface-card cursor-pointer p-4"
+    >
       <div className="flex items-start gap-3">
         {showImage ? (
-          <button
-            type="button"
-            onClick={onOpen}
-            className="shrink-0 overflow-hidden rounded-lg"
-            aria-hidden="true"
-            tabIndex={-1}
-          >
-            <img
-              src={item.imageUrl}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              onError={() => setImageFailed(true)}
-              className="size-16 rounded-lg border object-cover sm:size-20"
-            />
-          </button>
+          <img
+            src={item.imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setImageFailed(true)}
+            className="size-16 shrink-0 rounded-lg border object-cover sm:size-20"
+          />
         ) : null}
         <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
-          <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <div className="min-w-0 flex-1">
             <p className={`font-medium ${item.readAt ? "" : "font-semibold"}`}>{item.title}</p>
             <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
               {item.summary || "No summary provided."}
             </p>
-          </button>
+          </div>
           <button
             type="button"
             aria-label={item.savedAt ? `Unsave ${item.title}` : `Save ${item.title}`}
-            onClick={onToggleSave}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSave();
+            }}
             className="tap-target inline-flex shrink-0 items-center justify-center rounded-xl hover:bg-accent"
           >
             <Bookmark
@@ -299,68 +309,5 @@ function ArticleCard({
         {item.categories?.length ? ` · ${item.categories.join(", ")}` : ""}
       </p>
     </li>
-  );
-}
-
-function ArticleDetail({
-  item,
-  onClose,
-  onToggleSave,
-}: {
-  item: CurrentAffairsItem;
-  onClose: () => void;
-  onToggleSave: () => void;
-}) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const showImage = Boolean(item.imageUrl) && !imageFailed;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
-      <div className="surface-card max-h-[90dvh] w-full max-w-2xl overflow-auto p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold">{item.title}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {item.source} · {formatDate(item.publishedAt)}
-              {item.categories?.length ? ` · ${item.categories.join(", ")}` : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close article"
-            onClick={onClose}
-            className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        {showImage ? (
-          <img
-            src={item.imageUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onError={() => setImageFailed(true)}
-            className="mt-4 max-h-64 w-full rounded-xl border object-cover"
-          />
-        ) : null}
-        <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed">
-          {item.summary || "No summary provided."}
-        </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Button variant="secondary" className="tap-target" onClick={onToggleSave}>
-            <Bookmark className="size-4" /> {item.savedAt ? "Unsave" : "Save"}
-          </Button>
-          {item.url ? (
-            <Button
-              className="tap-target"
-              onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}
-            >
-              <ExternalLink className="size-4" /> Open article
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
   );
 }
