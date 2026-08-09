@@ -62,14 +62,17 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
+  --color-glass-1: var(--glass-1);
+  --color-glass-2: var(--glass-2);
+  --color-glass-3: var(--glass-3);
   --color-glass-card: var(--glass-card);
   --color-glass-popover: var(--glass-popover);
   --color-glass-surface: var(--glass-surface);
   --color-glass-sidebar: var(--glass-sidebar);
   --color-glass-overlay: var(--glass-overlay);
 
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.05), 0 8px 24px -12px oklch(0 0 0 / 0.18);
-  --shadow-lifted: 0 2px 6px oklch(0 0 0 / 0.06), 0 24px 48px -24px oklch(0 0 0 / 0.28);
+  --shadow-soft: 0 1px 1px oklch(0 0 0 / 0.03), 0 6px 18px -14px oklch(0 0 0 / 0.14);
+  --shadow-lifted: 0 2px 6px oklch(0 0 0 / 0.05), 0 24px 48px -24px oklch(0 0 0 / 0.24);
   --shadow-glow: 0 0 0 1px oklch(1 0 0 / 6%), 0 0 32px -6px var(--primary);
 }
 
@@ -107,12 +110,19 @@
   --input: oklch(0.9 0.008 95);
   --ring: oklch(0.62 0.13 55);
 
-  /* Glass surfaces: alpha lets backdrop-blur show through on cards, popovers, dialogs, sheets */
-  --glass-card: oklch(1 0 0 / 82%);
-  --glass-popover: oklch(1 0 0 / 88%);
-  --glass-surface: oklch(1 0 0 / 55%);
-  --glass-sidebar: oklch(0.972 0.007 95 / 82%);
-  --glass-overlay: oklch(0.2 0.01 265 / 35%);
+  /* Glass hierarchy — three levels, background must read through all of them.
+     Level 1: background-forward (page sections, large containers)
+     Level 2: normal glass (cards, nav, panels, inputs)
+     Level 3: elevated glass (dialogs, sheets, popovers, dropdowns) */
+  --glass-1: oklch(1 0 0 / 8%);
+  --glass-2: oklch(1 0 0 / 16%);
+  --glass-3: oklch(1 0 0 / 30%);
+
+  --glass-card: var(--glass-2);
+  --glass-popover: var(--glass-3);
+  --glass-surface: var(--glass-2);
+  --glass-sidebar: var(--glass-2);
+  --glass-overlay: oklch(0.2 0.01 265 / 28%);
 
   --chart-1: oklch(0.62 0.13 55);
   --chart-2: oklch(0.6 0.12 155);
@@ -162,12 +172,20 @@
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.76 0.13 62);
 
-  /* Glass surfaces: alpha lets backdrop-blur show through on cards, popovers, dialogs, sheets */
-  --glass-card: oklch(0.23 0.012 265 / 66%);
-  --glass-popover: oklch(0.235 0.012 265 / 78%);
-  --glass-surface: oklch(0.24 0.012 265 / 42%);
-  --glass-sidebar: oklch(0.17 0.01 265 / 70%);
-  --glass-overlay: oklch(0.08 0.012 265 / 55%);
+  /* Glass hierarchy — three levels, background (star field / nebula glow)
+     must read through all of them.
+     Level 1: background-forward (page sections, large containers)
+     Level 2: normal glass (cards, nav, panels, inputs)
+     Level 3: elevated glass (dialogs, sheets, popovers, dropdowns) */
+  --glass-1: oklch(0.23 0.012 265 / 14%);
+  --glass-2: oklch(0.23 0.012 265 / 22%);
+  --glass-3: oklch(0.25 0.012 265 / 36%);
+
+  --glass-card: var(--glass-2);
+  --glass-popover: var(--glass-3);
+  --glass-surface: var(--glass-2);
+  --glass-sidebar: var(--glass-2);
+  --glass-overlay: oklch(0.08 0.012 265 / 48%);
 
   --sidebar: oklch(0.19 0.008 265);
   --sidebar-foreground: oklch(0.93 0.005 95);
@@ -226,11 +244,45 @@
   min-width: 44px;
 }
 
+/* Level 2 glass card — used throughout for article cards, settings rows,
+   empty states, etc. Background must remain visible through it. */
 @utility surface-card {
-  background-color: var(--color-surface);
+  background-color: var(--color-glass-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Level 1 — background-forward. Page sections and large grouping containers
+   that should barely interrupt the background. */
+@utility glass-1 {
+  background-color: var(--color-glass-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Level 2 — normal glass. Cards, nav, panels. */
+@utility glass-2 {
+  background-color: var(--color-glass-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Level 3 — elevated glass. Dialogs, sheets, popovers, dropdowns. */
+@utility glass-3 {
+  background-color: var(--color-glass-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lifted);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
 }
 
 @utility text-balance-tight {

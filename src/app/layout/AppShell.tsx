@@ -54,8 +54,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => setOpen(false), [pathname]);
 
   return (
-    <div className="flex min-h-dvh-safe bg-background">
-      <aside className="hidden w-72 shrink-0 border-r bg-sidebar lg:block">
+    <div className="flex min-h-dvh-safe">
+      <aside className="hidden w-72 shrink-0 border-r border-sidebar-border/60 bg-glass-sidebar backdrop-blur-2xl lg:block">
         <div className="sticky top-0 max-h-dvh overflow-y-auto pb-8">
           <Brand />
           <NavList />
@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </SheetTrigger>
               <SheetContent
                 side="left"
-                className="w-[19rem] gap-0 border-r border-white/10 bg-sidebar/65 p-0 pt-safe pb-safe backdrop-blur-2xl dark:border-white/10"
+                className="w-[19rem] gap-0 border-r border-white/10 bg-glass-popover p-0 pt-safe pb-safe backdrop-blur-2xl dark:border-white/10"
               >
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand />

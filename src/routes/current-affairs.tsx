@@ -265,7 +265,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by category"
             value={category}
             onChange={(event) => setCategory(event.target.value)}
-            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
           >
             <option value="">All categories</option>
             {categories.map((item) => (
@@ -278,7 +278,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by source"
             value={source}
             onChange={(event) => setSource(event.target.value)}
-            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
           >
             <option value="">All sources</option>
             {sources.map((item) => (
@@ -291,7 +291,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by GK topic"
             value={topic}
             onChange={(event) => setTopic(event.target.value as CurrentAffairsTopic | "")}
-            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
           >
             <option value="">All GK topics</option>
             {CURRENT_AFFAIRS_TOPICS.map((item) => (
@@ -304,7 +304,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by importance"
             value={importance}
             onChange={(event) => setImportance(event.target.value as GkImportanceLevel | "")}
-            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
           >
             <option value="">All importance</option>
             {(Object.keys(IMPORTANCE_LABELS) as GkImportanceLevel[]).map((item) => (
