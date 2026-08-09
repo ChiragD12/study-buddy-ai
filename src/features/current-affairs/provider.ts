@@ -158,7 +158,18 @@ export const configuredFeedProvider: CurrentAffairsProvider = {
         tags: [...new Set([...(existing.tags ?? []), ...(item.tags ?? [])])],
       });
     }
-    return [...byId.values()].slice(0, query.limit ?? 60);
+    // IMPORTANT: sort by recency across the whole merged, deduplicated set
+    // *before* applying the global limit. Feeds are attempted in
+    // `CURRENT_AFFAIRS_FEEDS` order and `results` preserves that order, so
+    // slicing straight off `byId.values()` without sorting first silently
+    // dropped every article from feeds listed later in the array (e.g. all
+    // six thehindu.com feeds) whenever the earlier feeds alone already
+    // filled the limit — even though those feeds were fetched successfully.
+    // Sorting first means the limit only ever drops the oldest articles,
+    // never a whole source.
+    return [...byId.values()]
+      .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+      .slice(0, query.limit ?? 60);
   },
 };
 

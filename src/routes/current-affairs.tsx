@@ -18,10 +18,56 @@ import {
 } from "@/shared/components/Page";
 import { useRepoQuery } from "@/shared/hooks/useRepoQuery";
 import { formatDate } from "@/shared/utils/format";
-import type { CurrentAffairsItem } from "@/shared/types/domain";
+import {
+  CURRENT_AFFAIRS_CLASSIFICATION_VERSION,
+  CURRENT_AFFAIRS_TOPICS,
+  CURRENT_AFFAIRS_TOPIC_LABELS,
+  type CurrentAffairsItem,
+  type CurrentAffairsTopic,
+  type GkImportanceLevel,
+} from "@/shared/types/domain";
 
 /** How long a background refresh is skipped after a successful one. */
 const CURRENT_AFFAIRS_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
+
+/** How often to re-poll the local store while some article is awaiting AI classification. */
+const CLASSIFICATION_POLL_MS = 4000;
+/** Stop polling after this many attempts (~2 minutes) even if something never classifies. */
+const CLASSIFICATION_POLL_MAX_ATTEMPTS = 30;
+
+const IMPORTANCE_LABELS: Record<GkImportanceLevel, string> = {
+  critical: "Critical",
+  important: "Important",
+  useful: "Useful",
+  low: "Low",
+};
+
+/** Critical first … low last. Unclassified articles rank just after "important" so fresh,
+ *  not-yet-classified news stays visible near the top rather than sinking to the bottom. */
+const IMPORTANCE_RANK: Record<GkImportanceLevel | "unclassified", number> = {
+  critical: 0,
+  important: 1,
+  unclassified: 2,
+  useful: 3,
+  low: 4,
+};
+
+function isUnclassified(item: CurrentAffairsItem): boolean {
+  return (
+    !item.classification || item.classification.version !== CURRENT_AFFAIRS_CLASSIFICATION_VERSION
+  );
+}
+
+function importanceRank(item: CurrentAffairsItem): number {
+  if (isUnclassified(item)) return IMPORTANCE_RANK.unclassified;
+  return IMPORTANCE_RANK[item.classification!.importanceLevel];
+}
+
+/** Importance first, then newest published first. Deliberately ignores the legacy
+ *  `relevanceScore` — GK importance from the classifier is the ranking signal now. */
+function byImportanceThenRecency(a: CurrentAffairsItem, b: CurrentAffairsItem): number {
+  return importanceRank(a) - importanceRank(b) || b.publishedAt.localeCompare(a.publishedAt);
+}
 
 export const Route = createFileRoute("/current-affairs")({
   head: () => ({
@@ -34,15 +80,31 @@ export const Route = createFileRoute("/current-affairs")({
 });
 
 function CurrentAffairsPage() {
-  const stored = useRepoQuery(() => currentAffairsRepository.list());
+  const initialStored = useRepoQuery(() => currentAffairsRepository.list());
+  // `liveStored` mirrors `initialStored` and is what the page actually renders. Once
+  // classification is pending, a poll re-runs the same `currentAffairsRepository.list()`
+  // call the initial load used and pushes the result in here — reusing the existing
+  // repository query rather than introducing a second data store — so results from the
+  // background classifier (see currentAffairsRepository.saveClassification) reach the
+  // screen without requiring a full page reload.
+  const [liveStored, setLiveStored] = useState<CurrentAffairsItem[] | undefined>(undefined);
+  useEffect(() => {
+    setLiveStored(initialStored);
+  }, [initialStored]);
+  const stored = liveStored;
   const exams = useRepoQuery(() => examRepository.list());
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [topic, setTopic] = useState<CurrentAffairsTopic | "">("");
+  const [importance, setImportance] = useState<GkImportanceLevel | "">("");
   const [source, setSource] = useState("");
   const [savedOnly, setSavedOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const provider = currentAffairsProviders.active();
+  // RSS/feed category (e.g. "India", "Sport") is kept distinct from the AI-assigned GK
+  // topic (e.g. "defence", "economy") — they come from different places and don't map
+  // 1:1, so they get separate filters instead of being merged into one taxonomy.
   const categories = useMemo(
     () => [...new Set((stored ?? []).flatMap((item) => item.categories ?? []))].sort(),
     [stored],
@@ -51,17 +113,43 @@ function CurrentAffairsPage() {
     () => [...new Set((stored ?? []).map((item) => item.source))].sort(),
     [stored],
   );
-  const items = (stored ?? []).filter((item) => {
-    const haystack = [item.title, item.summary, item.source, ...(item.categories ?? [])]
-      .join(" ")
-      .toLowerCase();
-    return (
-      (!query || haystack.includes(query.toLowerCase())) &&
-      (!category || item.categories?.includes(category)) &&
-      (!source || item.source === source) &&
-      (!savedOnly || Boolean(item.savedAt))
-    );
-  });
+  const items = (stored ?? [])
+    .filter((item) => {
+      const haystack = [item.title, item.summary, item.source, ...(item.categories ?? [])]
+        .join(" ")
+        .toLowerCase();
+      return (
+        (!query || haystack.includes(query.toLowerCase())) &&
+        (!category || item.categories?.includes(category)) &&
+        (!topic || item.classification?.primaryTopic === topic) &&
+        (!importance || item.classification?.importanceLevel === importance) &&
+        (!source || item.source === source) &&
+        (!savedOnly || Boolean(item.savedAt))
+      );
+    })
+    .sort(byImportanceThenRecency);
+
+  // While anything is still awaiting (or re-awaiting, after a version bump) AI
+  // classification, poll the local store on an interval so results appear as soon as
+  // `classifyNewCurrentAffairs()` persists them — without turning classification into a
+  // blocking part of the refresh flow. Stops on its own once nothing is pending, or after
+  // a bounded number of attempts so a stuck classification can't poll forever.
+  useEffect(() => {
+    if (!(stored ?? []).some(isUnclassified)) return;
+    let cancelled = false;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      void currentAffairsRepository.list().then((fresh) => {
+        if (!cancelled) setLiveStored(fresh);
+      });
+      if (attempts >= CLASSIFICATION_POLL_MAX_ATTEMPTS) window.clearInterval(timer);
+    }, CLASSIFICATION_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [stored]);
 
   async function refresh(options?: { silent?: boolean }) {
     const silent = options?.silent ?? false;
@@ -80,7 +168,12 @@ function CurrentAffairsPage() {
       // any articles it returns are saved and the error state is cleared —
       // failures never delete or hide previously cached articles.
       const incoming = await provider.fetchItems({ exams: exams ?? [], limit: 60 });
+      // `saveMany` persists the fetched articles and (fire-and-forget, not awaited here)
+      // kicks off background classification. Re-reading the list immediately afterwards
+      // makes the newly saved articles show up right away, still unclassified — the poll
+      // effect above then picks up their classification as it completes.
       await currentAffairsRepository.saveMany(incoming);
+      setLiveStored(await currentAffairsRepository.list());
       await settingsRepository.update({ currentAffairsRefreshedAt: now() });
       setRefreshError(null);
       if (!silent) toast.success(`Refreshed ${incoming.length} current-affairs items`);
@@ -194,6 +287,32 @@ function CurrentAffairsPage() {
               </option>
             ))}
           </select>
+          <select
+            aria-label="Filter by GK topic"
+            value={topic}
+            onChange={(event) => setTopic(event.target.value as CurrentAffairsTopic | "")}
+            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+          >
+            <option value="">All GK topics</option>
+            {CURRENT_AFFAIRS_TOPICS.map((item) => (
+              <option key={item} value={item}>
+                {CURRENT_AFFAIRS_TOPIC_LABELS[item]}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by importance"
+            value={importance}
+            onChange={(event) => setImportance(event.target.value as GkImportanceLevel | "")}
+            className="tap-target rounded-xl border bg-surface px-3 text-sm"
+          >
+            <option value="">All importance</option>
+            {(Object.keys(IMPORTANCE_LABELS) as GkImportanceLevel[]).map((item) => (
+              <option key={item} value={item}>
+                {IMPORTANCE_LABELS[item]}
+              </option>
+            ))}
+          </select>
           <Button
             variant={savedOnly ? "default" : "secondary"}
             className="tap-target"
@@ -304,10 +423,45 @@ function ArticleCard({
           </button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <ClassificationBadges item={item} />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
         {item.source} · {formatDate(item.publishedAt)}
         {item.categories?.length ? ` · ${item.categories.join(", ")}` : ""}
       </p>
     </li>
+  );
+}
+
+const IMPORTANCE_BADGE_CLASSES: Record<GkImportanceLevel, string> = {
+  critical: "bg-destructive/10 text-destructive",
+  important: "bg-primary/10 text-primary",
+  useful: "bg-accent text-accent-foreground",
+  low: "bg-muted text-muted-foreground",
+};
+
+/** Topic + importance pills for one article, or a neutral "Classifying…" pill while the
+ *  background classifier hasn't reached it yet. Never blocks the card from rendering. */
+function ClassificationBadges({ item }: { item: CurrentAffairsItem }) {
+  const classification = isUnclassified(item) ? undefined : item.classification;
+  if (!classification) {
+    return (
+      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        Classifying…
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className="rounded-full bg-accent px-2 py-0.5 text-xs text-accent-foreground">
+        {CURRENT_AFFAIRS_TOPIC_LABELS[classification.primaryTopic]}
+      </span>
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-medium ${IMPORTANCE_BADGE_CLASSES[classification.importanceLevel]}`}
+      >
+        {IMPORTANCE_LABELS[classification.importanceLevel]}
+      </span>
+    </>
   );
 }
