@@ -5,19 +5,19 @@ import { subscriptionStore } from "../_lib/subscriptionStore.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse): Promise<void> {
   if (!requirePost(request, response) || !requireCronSecret(request, response)) return;
-  let subscription;
+  let stored;
   try {
-    subscription = await subscriptionStore.get();
+    stored = await subscriptionStore.get();
   } catch {
     jsonError(response, 503, "Subscription storage is not configured for this deployment.");
     return;
   }
-  if (!subscription) {
+  if (!stored) {
     jsonError(response, 503, "No push subscription is registered.");
     return;
   }
   try {
-    await sendPushNotification(subscription, {
+    await sendPushNotification(stored.subscription, {
       type: "test",
       title: "Exam Assistant test notification",
     });

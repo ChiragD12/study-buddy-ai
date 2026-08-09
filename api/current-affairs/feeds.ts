@@ -40,7 +40,7 @@ const REQUEST_HEADERS = {
  * inlined allowlist so this serverless function has no runtime dependency
  * on the frontend source tree (see file header).
  */
-const CURRENT_AFFAIRS_FEED_URLS: readonly string[] = [
+export const CURRENT_AFFAIRS_FEED_URLS: readonly string[] = [
   "https://indianexpress.com/section/upsc-current-affairs/feed/",
   "https://indianexpress.com/section/explained/feed/",
   "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=5",
@@ -52,7 +52,7 @@ const CURRENT_AFFAIRS_FEED_URLS: readonly string[] = [
   "https://www.thehindu.com/sci-tech/energy-and-environment/feeder/default.rss",
 ];
 
-interface NormalizedFeedItem {
+export interface NormalizedFeedItem {
   guid?: string | undefined;
   title: string;
   url: string;
@@ -512,7 +512,11 @@ function logIfSuspiciouslyEmpty(feedUrl: string, result: NormalizeResult): void 
   }
 }
 
-function parseFeed(
+/**
+ * Exported so api/notifications/run.ts can parse the same feeds with
+ * identical normalization instead of a second, drifting implementation.
+ */
+export function parseFeed(
   xml: string,
   feedUrl: string,
 ): { source?: string | undefined; items: NormalizedFeedItem[] } {
@@ -535,7 +539,8 @@ function parseFeed(
   throw new Error("Unrecognized feed format (expected RSS 2.0 or Atom).");
 }
 
-async function fetchFeedXml(url: string): Promise<string> {
+/** Exported for reuse by api/notifications/run.ts (see parseFeed above). */
+export async function fetchFeedXml(url: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {

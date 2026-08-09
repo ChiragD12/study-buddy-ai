@@ -1,21 +1,26 @@
-export const NOTIFICATION_CATEGORIES = [
-  "National",
-  "Defence",
-  "Space & Science",
-  "Technology",
-  "Sports",
-  "Economy",
-  "Polity/Governance",
-  "Awards",
-  "Environment",
-  "Important appointments",
-  "Important reports/indexes",
-  "Haryana",
-  "Rajasthan",
-  "Other state-specific relevance",
-] as const;
+import { CURRENT_AFFAIRS_TOPICS, type CurrentAffairsTopic } from "@/shared/types/domain";
 
-export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+/**
+ * Categories a person can enable Current Affairs push notifications for.
+ *
+ * These are the exact `CurrentAffairsTopic` values the classifier assigns
+ * to each article as `primaryTopic` (see
+ * ai/context/currentAffairsClassification.ts on the client, and the
+ * server-safe mirror in api/_lib/currentAffairsTaxonomy.ts used by the
+ * cron worker) — NOT RSS category strings, and not a separate ad-hoc list.
+ * A preference here only ever matches an article whose
+ * classification.primaryTopic equals the same value, so the labels shown
+ * here are the same CURRENT_AFFAIRS_TOPIC_LABELS already used on the
+ * Current Affairs page's topic filter.
+ *
+ * Previously this was its own ad-hoc list (e.g. "Rajasthan", "National")
+ * that didn't correspond to anything the classifier could ever produce, so
+ * a saved preference could never actually match an article. Renamed here
+ * to the real taxonomy so notification filtering works.
+ */
+export const NOTIFICATION_CATEGORIES = CURRENT_AFFAIRS_TOPICS;
+
+export type NotificationCategory = CurrentAffairsTopic;
 
 export interface NotificationPreferences {
   currentAffairsEnabled: boolean;

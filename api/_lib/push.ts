@@ -4,7 +4,14 @@ export interface PushPayload {
   type: "current-affairs" | "test";
   itemId?: string;
   title: string;
+  /** The actual article title, for current-affairs notifications. */
+  body?: string;
+  /** CurrentAffairsTopic value (see currentAffairsTaxonomy.ts). */
   category?: string;
+  /** Publisher name, e.g. "The Hindu". */
+  source?: string;
+  /** Original publisher article URL — what notificationclick opens. */
+  url?: string;
 }
 
 export interface PushSubscriptionJSON {

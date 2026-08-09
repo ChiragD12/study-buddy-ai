@@ -76,15 +76,33 @@ self.addEventListener("push", (event) => {
     payload = { title: "Exam Assistant", body: event.data.text() };
   }
   const title = payload.title || "Exam Assistant";
-  const target = payload.itemId
-    ? `/current-affairs?itemId=${encodeURIComponent(payload.itemId)}`
-    : payload.url || "/current-affairs";
+  // A Current Affairs notification always carries the original publisher
+  // URL — that takes priority so notificationclick opens the actual
+  // article, never an in-app /current-affairs?itemId=... route (there is
+  // no such route to navigate to; it would just 404/error inside the PWA).
+  // The itemId-based route is only a fallback for older/other payload
+  // shapes that never included a real url.
+  const target = payload.url
+    ? payload.url
+    : payload.itemId
+      ? `/current-affairs?itemId=${encodeURIComponent(payload.itemId)}`
+      : "/current-affairs";
+  const body = payload.body
+    ? payload.source
+      ? `${payload.body} · ${payload.source}`
+      : payload.body
+    : payload.category
+      ? `Current Affairs · ${payload.category}`
+      : "";
   event.waitUntil(
     self.registration.showNotification(title, {
-      body: payload.category ? `Current Affairs · ${payload.category}` : payload.body || "",
+      body,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: payload.tag || "exam-assistant",
+      // Distinct per-article tag (when we have an itemId) so several new
+      // Current Affairs notifications in one cron run don't collapse into
+      // a single replaced notification — each story stays visible.
+      tag: payload.tag || (payload.itemId ? `exam-assistant-${payload.itemId}` : "exam-assistant"),
       data: { url: target, type: payload.type || "notification", itemId: payload.itemId },
     }),
   );
@@ -93,16 +111,33 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || "/";
+  const isSameOrigin = (() => {
+    try {
+      return new URL(target, self.location.origin).origin === self.location.origin;
+    } catch {
+      return false;
+    }
+  })();
   event.waitUntil(
     (async () => {
-      const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const client of clientList) {
-        if ("focus" in client) {
-          await client.focus();
-          if ("navigate" in client) await client.navigate(target);
-          return;
+      if (isSameOrigin) {
+        const clientList = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        for (const client of clientList) {
+          if ("focus" in client) {
+            await client.focus();
+            if ("navigate" in client) await client.navigate(target);
+            return;
+          }
         }
+        await self.clients.openWindow(target);
+        return;
       }
+      // Cross-origin targets (e.g. publisher article URLs) must never be
+      // passed to client.navigate() on an app window — always open them
+      // in a new window/tab instead.
       await self.clients.openWindow(target);
     })(),
   );

@@ -15,6 +15,7 @@ import {
   saveNotificationPreferences,
   type NotificationPreferences,
 } from "@/features/notifications/preferences";
+import { CURRENT_AFFAIRS_TOPIC_LABELS } from "@/shared/types/domain";
 import { Button } from "@/components/ui/button";
 import { PageContainer, PageHeader } from "@/shared/components/Page";
 
@@ -44,6 +45,34 @@ const STATE_COPY: Record<PushState, string> = {
   subscribed: "Subscribed. Your device will receive push messages from your endpoint.",
   "needs-renewal": "The push subscription expired. Subscribe again.",
 };
+
+/**
+ * Pushes the person's current Current Affairs category selection up to the
+ * server-side subscription record (see api/notifications/subscribe.ts and
+ * subscriptionStore.ts), so the cron worker filters notifications by the
+ * same preferences shown here. A no-op (silently, since local preferences
+ * are already saved regardless) when there's no active push subscription
+ * yet to attach the categories to.
+ */
+async function syncCategoriesWithServer(categories: NotificationPreferences["categories"]) {
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    await fetch("/api/notifications/subscribe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        subscription: subscription.toJSON(),
+        currentAffairsCategories: categories,
+      }),
+    });
+  } catch {
+    // Best-effort — the local preference is already saved either way, and
+    // the next successful sync (or the next subscribeToPush() call) will
+    // pick up the current selection.
+  }
+}
 
 function NotificationSettings() {
   const [state, setState] = useState<PushState | null>(null);
@@ -83,6 +112,11 @@ function NotificationSettings() {
       const next = { ...preferences, currentAffairsEnabled: true };
       setPreferences(next);
       saveNotificationPreferences(next);
+      // subscribeToPush() registers the subscription itself but doesn't
+      // know about category preferences — send them explicitly so the
+      // worker doesn't default to "every topic enabled" only until the
+      // next checkbox change.
+      await syncCategoriesWithServer(next.categories);
       toast.success("Current Affairs notifications enabled");
       await refresh();
     } catch (error) {
@@ -98,6 +132,7 @@ function NotificationSettings() {
     const next = { ...preferences, categories };
     setPreferences(next);
     saveNotificationPreferences(next);
+    if (preferences.currentAffairsEnabled) void syncCategoriesWithServer(categories);
   }
 
   return (
@@ -141,7 +176,7 @@ function NotificationSettings() {
                 onChange={() => toggleCategory(category)}
                 className="size-4 accent-primary"
               />
-              {category}
+              {CURRENT_AFFAIRS_TOPIC_LABELS[category]}
             </label>
           ))}
         </div>
