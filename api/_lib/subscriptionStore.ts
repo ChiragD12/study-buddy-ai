@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import type { PushSubscriptionJSON } from "./push";
+import type { PushSubscriptionJSON } from "./push.js";
 
 export interface SubscriptionStore {
   register(subscription: PushSubscriptionJSON): Promise<void>;

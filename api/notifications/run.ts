@@ -1,7 +1,7 @@
-import type { ApiRequest, ApiResponse } from "../_lib/http";
-import { jsonError, requireCronSecret, requirePost } from "../_lib/http";
-import { sendPushNotification } from "../_lib/push";
-import { subscriptionStore } from "../_lib/subscriptionStore";
+import type { ApiRequest, ApiResponse } from "../_lib/http.js";
+import { jsonError, requireCronSecret, requirePost } from "../_lib/http.js";
+import { sendPushNotification } from "../_lib/push.js";
+import { subscriptionStore } from "../_lib/subscriptionStore.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse): Promise<void> {
   if (!requirePost(request, response) || !requireCronSecret(request, response)) return;

@@ -1,6 +1,6 @@
-import type { ApiRequest, ApiResponse } from "../_lib/http";
-import { jsonError, requirePost } from "../_lib/http";
-import { subscriptionStore } from "../_lib/subscriptionStore";
+import type { ApiRequest, ApiResponse } from "../_lib/http.js";
+import { jsonError, requirePost } from "../_lib/http.js";
+import { subscriptionStore } from "../_lib/subscriptionStore.js";
 
 export default async function handler(request: ApiRequest, response: ApiResponse): Promise<void> {
   if (!requirePost(request, response)) return;
