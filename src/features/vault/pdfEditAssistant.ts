@@ -26,7 +26,8 @@ const RESPONSE_SCHEMA = {
     title: { type: "string" },
     subtitle: {
       type: "string",
-      description: "Optional secondary line under the title. Keep as-is unless the instruction asks to change it.",
+      description:
+        "Optional secondary line under the title. Keep as-is unless the instruction asks to change it.",
     },
     sections: {
       type: "array",

@@ -13,9 +13,7 @@ export class OcrFailedError extends Error {
   }
 }
 
-type TesseractWorker = Awaited<
-  ReturnType<typeof import("tesseract.js")["createWorker"]>
->;
+type TesseractWorker = Awaited<ReturnType<(typeof import("tesseract.js"))["createWorker"]>>;
 
 let workerPromise: Promise<TesseractWorker> | null = null;
 
@@ -42,22 +40,16 @@ export async function ocrImage(blob: Blob): Promise<string> {
   try {
     worker = await getWorker();
   } catch {
-    throw new OcrFailedError(
-      "The OCR engine couldn't be loaded (check your network connection).",
-    );
+    throw new OcrFailedError("The OCR engine couldn't be loaded (check your network connection).");
   }
 
   try {
-    const { data } = await worker.recognize(
-      blob as unknown as string,
-    );
+    const { data } = await worker.recognize(blob as unknown as string);
 
     const text = (data.text ?? "").trim();
 
     if (!text) {
-      throw new OcrFailedError(
-        "No readable text was found in this image.",
-      );
+      throw new OcrFailedError("No readable text was found in this image.");
     }
 
     return text;

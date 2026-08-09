@@ -151,9 +151,7 @@ function AttachmentChip({
 
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-foreground">{attachment.file.name}</span>
-        <span
-          className={cn("block truncate", hasError ? "text-destructive" : "text-muted-foreground")}
-        >
+        <span className={cn("block truncate", hasError ? "text-destructive" : "text-muted-foreground")}>
           {hasError ? attachment.error : formatBytes(attachment.file.size)}
         </span>
       </span>
@@ -212,22 +210,25 @@ export function ChatComposer({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !hasContent) return;
-    onSend(
-      value,
-      validFiles.map((attachment) => attachment.file),
-    );
+    onSend(value, validFiles.map((attachment) => attachment.file));
     setValue("");
     attachments.forEach(revokeAttachmentPreview);
     setAttachments([]);
   }
 
   function handleFilesPicked(event: ChangeEvent<HTMLInputElement>) {
-    const fileList = event.target.files;
+    const input = event.target;
+    // Snapshot the selected files into a plain array immediately. Some
+    // browsers treat `input.files` as a live FileList tied to the input's
+    // current state — resetting `input.value` below can clear that same
+    // FileList in place, so capturing a copy first (before the reset) is
+    // required or the files silently disappear before we read them.
+    const files = input.files ? Array.from(input.files) : [];
     // Reset so picking the same file again still fires a change event.
-    event.target.value = "";
-    // Cancelled picker: fileList is empty — nothing to do.
-    if (!fileList || fileList.length === 0) return;
-    const picked = Array.from(fileList).map((file) => describeAttachment(file));
+    input.value = "";
+    // Cancelled picker: files is empty — nothing to do.
+    if (files.length === 0) return;
+    const picked = files.map((file) => describeAttachment(file));
     setAttachments((current) => [...current, ...picked]);
   }
 

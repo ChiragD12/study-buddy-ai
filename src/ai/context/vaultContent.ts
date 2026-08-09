@@ -58,23 +58,17 @@ function pdfDocToText(doc: PdfDocSpec): string {
     return `[Page ${index + 1}]\n${body}`;
   });
 
-  return [doc.title, ...pages]
-    .filter((part) => part.trim())
-    .join("\n\n");
+  return [doc.title, ...pages].filter((part) => part.trim()).join("\n\n");
 }
 
 async function ocrPdf(blob: Blob): Promise<string> {
-  const { renderPdfPagesToImages } = await import(
-    "@/features/vault/pdfExtract"
-  );
+  const { renderPdfPagesToImages } = await import("@/features/vault/pdfExtract");
   const { ocrImage } = await import("@/features/vault/ocr");
 
   const images = await renderPdfPagesToImages(blob);
 
   if (!images.length) {
-    throw new VaultContentUnavailableError(
-      "Unable to extract readable text from this file.",
-    );
+    throw new VaultContentUnavailableError("Unable to extract readable text from this file.");
   }
 
   const pages: string[] = [];
@@ -87,9 +81,7 @@ async function ocrPdf(blob: Blob): Promise<string> {
       const pageText = await ocrImage(image);
       pages.push(`[Page ${pageNumber}]\n${pageText}`);
     } catch {
-      pages.push(
-        `[Page ${pageNumber}]\n[OCR could not read this page]`,
-      );
+      pages.push(`[Page ${pageNumber}]\n[OCR could not read this page]`);
     }
   }
 
@@ -104,19 +96,14 @@ async function extractFresh(
     const text = normalize(await blob.text());
 
     if (!text) {
-      throw new VaultContentUnavailableError(
-        "This text file appears to be empty.",
-      );
+      throw new VaultContentUnavailableError("This text file appears to be empty.");
     }
 
     return { text, method: "text" };
   }
 
   if (item.kind === "pdf") {
-    const {
-      extractPdfDoc,
-      PdfNotExtractableError,
-    } = await import("@/features/vault/pdfExtract");
+    const { extractPdfDoc, PdfNotExtractableError } = await import("@/features/vault/pdfExtract");
 
     try {
       const doc = await extractPdfDoc(blob, item.name);
@@ -135,9 +122,7 @@ async function extractFresh(
       const text = normalize(await ocrPdf(blob));
 
       if (!text) {
-        throw new VaultContentUnavailableError(
-          "Unable to extract readable text from this file.",
-        );
+        throw new VaultContentUnavailableError("Unable to extract readable text from this file.");
       }
 
       return { text, method: "pdf-ocr" };
@@ -146,22 +131,16 @@ async function extractFresh(
 
   if (item.kind === "image") {
     try {
-      const { ocrImage, OcrFailedError } = await import(
-        "@/features/vault/ocr"
-      );
+      const { ocrImage, OcrFailedError } = await import("@/features/vault/ocr");
 
       const text = normalize(await ocrImage(blob));
 
       return { text, method: "ocr" };
     } catch (error) {
-      const { OcrFailedError } = await import(
-        "@/features/vault/ocr"
-      );
+      const { OcrFailedError } = await import("@/features/vault/ocr");
 
       throw new VaultContentUnavailableError(
-        error instanceof OcrFailedError
-          ? error.message
-          : "OCR failed for this image.",
+        error instanceof OcrFailedError ? error.message : "OCR failed for this image.",
       );
     }
   }
@@ -171,15 +150,11 @@ async function extractFresh(
   );
 }
 
-export async function getVaultContent(
-  vaultItemId: string,
-): Promise<VaultContentResult> {
+export async function getVaultContent(vaultItemId: string): Promise<VaultContentResult> {
   const item = await vaultRepository.get(vaultItemId);
 
   if (!item) {
-    throw new VaultContentUnavailableError(
-      "I couldn't find that file.",
-    );
+    throw new VaultContentUnavailableError("I couldn't find that file.");
   }
 
   const cached = await vaultContentRepository.get(vaultItemId);
@@ -198,19 +173,12 @@ export async function getVaultContent(
   const blob = await vaultRepository.getBlob(vaultItemId);
 
   if (!blob) {
-    throw new VaultContentUnavailableError(
-      "This file has no stored data to read.",
-    );
+    throw new VaultContentUnavailableError("This file has no stored data to read.");
   }
 
   const { text, method } = await extractFresh(item, blob);
 
-  await vaultContentRepository.put(
-    vaultItemId,
-    text,
-    method,
-    item.updatedAt,
-  );
+  await vaultContentRepository.put(vaultItemId, text, method, item.updatedAt);
 
   const { text: bounded, truncated } = truncate(text);
 

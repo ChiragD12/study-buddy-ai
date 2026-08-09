@@ -179,7 +179,9 @@ function DocumentsPage() {
       });
       toast.success("Saved to Vault — edit it from Vault → PDFs.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save this document to the Vault.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save this document to the Vault.",
+      );
     } finally {
       setSavingToVault(false);
     }

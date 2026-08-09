@@ -113,7 +113,8 @@ export async function renderPdfDoc(spec: PdfDocSpec): Promise<Blob> {
   const title = spec.title.trim() || "Untitled document";
   const hasContent = spec.sections.some(
     (section) =>
-      section.heading?.trim() || section.paragraphs?.some((p) => p.trim()) ||
+      section.heading?.trim() ||
+      section.paragraphs?.some((p) => p.trim()) ||
       section.bullets?.some((b) => b.trim()),
   );
   if (!hasContent) throw new Error("There's no content available for this document.");
@@ -198,7 +199,15 @@ export async function renderPdfDoc(spec: PdfDocSpec): Promise<Blob> {
     }
     for (const bullet of section.bullets ?? []) {
       if (!bullet.trim()) continue;
-      cursor = drawWrapped(cursor, `•  ${bullet.trim()}`, bodyFont, BODY_SIZE, BODY_LEADING, INK, 12);
+      cursor = drawWrapped(
+        cursor,
+        `•  ${bullet.trim()}`,
+        bodyFont,
+        BODY_SIZE,
+        BODY_LEADING,
+        INK,
+        12,
+      );
     }
     cursor = { page: cursor.page, y: cursor.y - 10 };
   }

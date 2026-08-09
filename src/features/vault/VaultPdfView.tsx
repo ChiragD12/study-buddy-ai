@@ -90,7 +90,7 @@ export function VaultPdfView({ title, description }: { title: string; descriptio
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the
+
     // selected item's identity/version, not the whole live-query array.
   }, [selected?.id, selected?.updatedAt]);
 

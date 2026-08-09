@@ -72,7 +72,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <Menu className="size-5" aria-hidden="true" />
               </SheetTrigger>
-              <SheetContent side="left" className="w-[19rem] gap-0 border-r border-white/10 bg-sidebar/65 p-0 pt-safe pb-safe backdrop-blur-2xl dark:border-white/10">
+              <SheetContent
+                side="left"
+                className="w-[19rem] gap-0 border-r border-white/10 bg-sidebar/65 p-0 pt-safe pb-safe backdrop-blur-2xl dark:border-white/10"
+              >
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand />
                 <div className="max-h-full overflow-y-auto">
@@ -84,7 +87,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="relative z-10 min-w-0 flex-1 bg-transparent pl-safe pr-safe">{children}</main>
+        <main className="relative z-10 min-w-0 flex-1 bg-transparent pl-safe pr-safe">
+          {children}
+        </main>
       </div>
     </div>
   );

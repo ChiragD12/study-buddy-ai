@@ -19,8 +19,7 @@ const TWINKLE_FRACTION = 0.16;
 
 function prefersReducedMotion(): boolean {
   return (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   );
 }
 
@@ -52,10 +51,7 @@ export function StarField() {
     let lastFrame = 0;
 
     function buildStars(w: number, h: number) {
-      const count = Math.min(
-        MAX_STARS,
-        Math.max(100, Math.round(w * h * STAR_DENSITY)),
-      );
+      const count = Math.min(MAX_STARS, Math.max(100, Math.round(w * h * STAR_DENSITY)));
 
       const next: Star[] = [];
 
@@ -65,14 +61,8 @@ export function StarField() {
         next.push({
           x: Math.random() * w,
           y: Math.random() * h,
-          radius:
-  layer === 0
-    ? Math.random() * 0.9 + 0.45
-    : Math.random() * 1.6 + 0.7,
-          baseAlpha:
-  layer === 0
-    ? Math.random() * 0.35 + 0.35
-    : Math.random() * 0.45 + 0.55,
+          radius: layer === 0 ? Math.random() * 0.9 + 0.45 : Math.random() * 1.6 + 0.7,
+          baseAlpha: layer === 0 ? Math.random() * 0.35 + 0.35 : Math.random() * 0.45 + 0.55,
           layer,
           twinkle: Math.random() < TWINKLE_FRACTION,
           twinkleSpeed: Math.random() * 0.0012 + 0.0004,
@@ -115,22 +105,14 @@ export function StarField() {
         let alpha = star.baseAlpha;
 
         if (animate && star.twinkle) {
-          alpha *=
-            0.7 +
-            0.3 *
-              Math.sin(
-                elapsedMs * star.twinkleSpeed + star.twinklePhase,
-              );
+          alpha *= 0.7 + 0.3 * Math.sin(elapsedMs * star.twinkleSpeed + star.twinklePhase);
         }
 
         const themeAlpha = alpha;
 
         ctx.beginPath();
         ctx.arc(x, y, star.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(
-          themeAlpha,
-          0,
-        ).toFixed(3)})`;
+        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(themeAlpha, 0).toFixed(3)})`;
         ctx.fill();
       }
     }
@@ -173,14 +155,8 @@ export function StarField() {
   }, []);
 
   return (
-  <div
-    aria-hidden="true"
-    className="pointer-events-none fixed inset-0 z-[1] overflow-hidden"
-  >
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 h-full w-full"
-    />
-  </div>
-);
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[1] overflow-hidden">
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+    </div>
+  );
 }

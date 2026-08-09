@@ -245,8 +245,11 @@ function NoteDetailPage() {
           <div className="space-y-3 rounded-2xl border px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">
-                Verification status: <strong className="text-foreground">{note.verification}</strong>
-                {lastEntry?.summary && note.verification !== "pending" ? ` — ${lastEntry.summary}` : ""}
+                Verification status:{" "}
+                <strong className="text-foreground">{note.verification}</strong>
+                {lastEntry?.summary && note.verification !== "pending"
+                  ? ` — ${lastEntry.summary}`
+                  : ""}
               </p>
               <Button
                 variant="outline"
