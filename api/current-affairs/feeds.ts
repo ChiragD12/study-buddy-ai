@@ -269,21 +269,46 @@ function extractImage(item: Record<string, unknown>): string | undefined {
   );
 }
 
-/** RSS `<link>` is a plain string; Atom `<link>` is one or more elements with `href`/`rel`. */
+/**
+ * RSS `<link>` is plain text; Atom `<link>` is one or more elements with
+ * `href`/`rel` attributes.
+ *
+ * The XML parser's `isArray` option forces every `link` tag into an array
+ * (required so multiple Atom `<link>` elements aren't collapsed into one),
+ * which means RSS's single plain-text `<link>url</link>` also arrives here
+ * as an array — but of bare strings/`#text` nodes, not `@_href` objects.
+ * This must handle both array shapes, not just the Atom one, or every RSS
+ * item silently loses its URL and gets filtered out downstream.
+ */
 function extractLink(item: Record<string, unknown>): string {
   const link = item["link"];
   if (typeof link === "string") return link.trim();
-  if (link && typeof link === "object" && "#text" in (link as Record<string, unknown>)) {
+  if (link && typeof link === "object" && !Array.isArray(link) && "#text" in (link as Record<string, unknown>)) {
     return textOf(link);
   }
   if (Array.isArray(link)) {
-    const entries = link.filter(
-      (entry): entry is Record<string, unknown> => !!entry && typeof entry === "object",
+    const entries = link.filter((entry): entry is unknown => entry !== null && entry !== undefined);
+
+    // Prefer a proper Atom-style link object (rel="alternate", or the first
+    // one with no rel at all — both conventionally the canonical article URL).
+    const objectEntries = entries.filter(
+      (entry): entry is Record<string, unknown> => typeof entry === "object" && !Array.isArray(entry),
     );
-    const alternate = entries.find((entry) => textOf(entry["@_rel"]) === "alternate");
-    const first = entries.find((entry) => !entry["@_rel"] || textOf(entry["@_rel"]) === "");
-    const chosen = alternate ?? first ?? entries[0];
-    if (chosen) return textOf(chosen["@_href"]) || textOf(chosen);
+    const alternate = objectEntries.find((entry) => textOf(entry["@_rel"]) === "alternate");
+    const first = objectEntries.find((entry) => !entry["@_rel"] || textOf(entry["@_rel"]) === "");
+    const chosenObject = alternate ?? first ?? objectEntries[0];
+    if (chosenObject) {
+      const href = textOf(chosenObject["@_href"]) || textOf(chosenObject);
+      if (href) return href;
+    }
+
+    // Fall back to a bare string/`#text` entry — the RSS 2.0 shape, where
+    // `<link>` has no attributes and the array only exists because of the
+    // parser's isArray option.
+    for (const entry of entries) {
+      const text = textOf(entry);
+      if (text) return text.trim();
+    }
   }
   return "";
 }
@@ -332,13 +357,49 @@ function extractDescriptionSource(item: Record<string, unknown>): unknown {
   );
 }
 
-function normalizeItems(items: Record<string, unknown>[]): NormalizedFeedItem[] {
+/**
+ * Normalizes a raw `item`/`entry` node (or nodes) into a plain array of
+ * object records, regardless of whether the parser produced an array, a
+ * single bare object, or nothing at all. The `isArray` option on the
+ * parser already forces `item`/`entry` to be arrays in practice, but this
+ * does not assume that — a differently-shaped or single-element feed must
+ * still parse correctly.
+ */
+function asRecordArray(node: unknown): Record<string, unknown>[] {
+  if (Array.isArray(node)) {
+    return node.filter(
+      (entry): entry is Record<string, unknown> => !!entry && typeof entry === "object",
+    );
+  }
+  if (node && typeof node === "object") return [node as Record<string, unknown>];
+  return [];
+}
+
+interface NormalizeResult {
+  items: NormalizedFeedItem[];
+  /** Raw entry count before filtering, for internal diagnostics only. */
+  rawCount: number;
+  /** Per-reason counts of why a raw entry didn't make it into `items`. */
+  skipped: { missingUrl: number; missingTitle: number; error: number };
+}
+
+function normalizeItems(rawItems: unknown): NormalizeResult {
+  const items = asRecordArray(rawItems);
   const normalized: NormalizedFeedItem[] = [];
+  const skipped = { missingUrl: 0, missingTitle: 0, error: 0 };
+
   for (const item of items) {
     try {
       const url = extractLink(item);
       const title = htmlToPlainText(textOf(item["title"]));
-      if (!url || !title) continue;
+      if (!url) {
+        skipped.missingUrl += 1;
+        continue;
+      }
+      if (!title) {
+        skipped.missingTitle += 1;
+        continue;
+      }
       const guid = extractGuid(item);
       const publishedAt = parseDate(
         item["pubDate"] ?? item["dc:date"] ?? item["published"] ?? item["updated"],
@@ -356,29 +417,46 @@ function normalizeItems(items: Record<string, unknown>[]): NormalizedFeedItem[] 
       });
     } catch {
       // One malformed entry must not break the rest of the feed.
+      skipped.error += 1;
     }
   }
-  return normalized;
+  return { items: normalized, rawCount: items.length, skipped };
 }
 
-function parseFeed(xml: string): { source?: string | undefined; items: NormalizedFeedItem[] } {
+/**
+ * Logs internal diagnostics (server logs only — never part of the JSON
+ * response) when a feed had raw entries but none of them survived
+ * normalization, so an unexpected/malformed upstream XML shape can be
+ * identified from Vercel function logs rather than failing silently.
+ */
+function logIfSuspiciouslyEmpty(feedUrl: string, result: NormalizeResult): void {
+  if (result.rawCount > 0 && result.items.length === 0) {
+    console.error(
+      `[current-affairs] Parsed 0 items from ${result.rawCount} raw entries for ${feedUrl}. ` +
+        `Skipped — missingUrl: ${result.skipped.missingUrl}, missingTitle: ${result.skipped.missingTitle}, error: ${result.skipped.error}.`,
+    );
+  }
+}
+
+function parseFeed(
+  xml: string,
+  feedUrl: string,
+): { source?: string | undefined; items: NormalizedFeedItem[] } {
   const document = xmlParser.parse(xml) as Record<string, unknown>;
   const rss = document["rss"] as Record<string, unknown> | undefined;
   const channel = rss?.["channel"] as Record<string, unknown> | undefined;
   if (channel) {
-    const items = Array.isArray(channel["item"])
-      ? (channel["item"] as Record<string, unknown>[])
-      : [];
     const source = textOf(channel["title"]) || undefined;
-    return { ...(source !== undefined ? { source } : {}), items: normalizeItems(items) };
+    const result = normalizeItems(channel["item"]);
+    logIfSuspiciouslyEmpty(feedUrl, result);
+    return { ...(source !== undefined ? { source } : {}), items: result.items };
   }
   const feed = document["feed"] as Record<string, unknown> | undefined;
   if (feed) {
-    const entries = Array.isArray(feed["entry"])
-      ? (feed["entry"] as Record<string, unknown>[])
-      : [];
     const source = textOf(feed["title"]) || undefined;
-    return { ...(source !== undefined ? { source } : {}), items: normalizeItems(entries) };
+    const result = normalizeItems(feed["entry"]);
+    logIfSuspiciouslyEmpty(feedUrl, result);
+    return { ...(source !== undefined ? { source } : {}), items: result.items };
   }
   throw new Error("Unrecognized feed format (expected RSS 2.0 or Atom).");
 }
@@ -422,7 +500,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   try {
     const xml = await fetchFeedXml(feedUrl);
-    const { source, items } = parseFeed(xml);
+    const { source, items } = parseFeed(xml, feedUrl);
     sendJson(res, 200, { source, items });
   } catch (error) {
     sendJson(res, 502, {
