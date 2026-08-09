@@ -24,8 +24,11 @@ const NAMED_ENTITIES: Record<string, string> = {
   ldquo: "“",
 };
 
-function decodeEntities(value: string): string {
-  return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
+const ENTITY_PATTERN = /&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g;
+
+/** Decodes one layer of named/numeric HTML entities. */
+function decodeEntitiesOnce(value: string): string {
+  return value.replace(ENTITY_PATTERN, (match, entity: string) => {
     if (entity.startsWith("#x") || entity.startsWith("#X")) {
       const code = Number.parseInt(entity.slice(2), 16);
       return Number.isFinite(code) ? String.fromCodePoint(code) : match;
@@ -36,6 +39,22 @@ function decodeEntities(value: string): string {
     }
     return NAMED_ENTITIES[entity] ?? match;
   });
+}
+
+/**
+ * Decodes HTML entities, including entities that have been double-encoded
+ * by an upstream feed (e.g. `&amp;#124;` → `&#124;` → `|`). Bounded to a
+ * handful of passes so it can never loop indefinitely on malformed input,
+ * and stops as soon as a pass makes no further change.
+ */
+function decodeEntities(value: string): string {
+  let current = value;
+  for (let pass = 0; pass < 5; pass++) {
+    const next = decodeEntitiesOnce(current);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 /**

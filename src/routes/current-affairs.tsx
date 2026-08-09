@@ -79,6 +79,11 @@ function CurrentAffairsPage() {
     }
     setRefreshing(true);
     try {
+      // `provider.fetchItems` aggregates across every configured feed and
+      // only rejects when none of them could be retrieved; a resolved call
+      // here already represents a successful (possibly partial) refresh, so
+      // any articles it returns are saved and the error state is cleared —
+      // failures never delete or hide previously cached articles.
       const incoming = await provider.fetchItems({ exams: exams ?? [], limit: 60 });
       await currentAffairsRepository.saveMany(incoming);
       await settingsRepository.update({ currentAffairsRefreshedAt: now() });
@@ -89,6 +94,9 @@ function CurrentAffairsPage() {
         error instanceof Error
           ? error.message
           : "Couldn't refresh current affairs. Previously downloaded articles are still available.";
+      // Cached articles (`stored`) are left untouched here — nothing is
+      // deleted on failure, so the list below keeps rendering what's
+      // already downloaded.
       setRefreshError(message);
       if (!silent) toast.error(message);
     } finally {
@@ -116,6 +124,8 @@ function CurrentAffairsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasCachedArticles = Boolean(stored && stored.length > 0);
+
   return (
     <PageContainer>
       <PageHeader
@@ -139,7 +149,10 @@ function CurrentAffairsPage() {
         </NotImplementedNote>
       ) : refreshError ? (
         <NotImplementedNote>
-          {refreshError} Previously downloaded articles remain available offline.
+          {refreshError}{" "}
+          {hasCachedArticles
+            ? "Showing previously downloaded articles."
+            : "Previously downloaded articles remain available offline."}
         </NotImplementedNote>
       ) : null}
       <div className="mt-5 space-y-3">
@@ -236,27 +249,50 @@ function ArticleCard({
   onOpen: () => void;
   onToggleSave: () => void;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(item.imageUrl) && !imageFailed;
+
   return (
     <li className="surface-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <p className={`font-medium ${item.readAt ? "" : "font-semibold"}`}>{item.title}</p>
-          <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
-            {item.summary || "No summary provided."}
-          </p>
-        </button>
-        <button
-          type="button"
-          aria-label={item.savedAt ? `Unsave ${item.title}` : `Save ${item.title}`}
-          onClick={onToggleSave}
-          className="tap-target inline-flex items-center justify-center rounded-xl hover:bg-accent"
-        >
-          <Bookmark
-            className={
-              item.savedAt ? "size-4 fill-primary text-primary" : "size-4 text-muted-foreground"
-            }
-          />
-        </button>
+      <div className="flex items-start gap-3">
+        {showImage ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            className="shrink-0 overflow-hidden rounded-lg"
+            aria-hidden="true"
+            tabIndex={-1}
+          >
+            <img
+              src={item.imageUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setImageFailed(true)}
+              className="size-16 rounded-lg border object-cover sm:size-20"
+            />
+          </button>
+        ) : null}
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+          <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+            <p className={`font-medium ${item.readAt ? "" : "font-semibold"}`}>{item.title}</p>
+            <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+              {item.summary || "No summary provided."}
+            </p>
+          </button>
+          <button
+            type="button"
+            aria-label={item.savedAt ? `Unsave ${item.title}` : `Save ${item.title}`}
+            onClick={onToggleSave}
+            className="tap-target inline-flex shrink-0 items-center justify-center rounded-xl hover:bg-accent"
+          >
+            <Bookmark
+              className={
+                item.savedAt ? "size-4 fill-primary text-primary" : "size-4 text-muted-foreground"
+              }
+            />
+          </button>
+        </div>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
         {item.source} · {formatDate(item.publishedAt)}
@@ -275,6 +311,9 @@ function ArticleDetail({
   onClose: () => void;
   onToggleSave: () => void;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(item.imageUrl) && !imageFailed;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
       <div className="surface-card max-h-[90dvh] w-full max-w-2xl overflow-auto p-5">
@@ -295,6 +334,16 @@ function ArticleDetail({
             <X className="size-4" />
           </button>
         </div>
+        {showImage ? (
+          <img
+            src={item.imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setImageFailed(true)}
+            className="mt-4 max-h-64 w-full rounded-xl border object-cover"
+          />
+        ) : null}
         <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed">
           {item.summary || "No summary provided."}
         </p>

@@ -63,12 +63,28 @@ function sendJson(res: ServerResponse, status: number, body: FeedResponseBody): 
   res.end(JSON.stringify(body));
 }
 
-/** Unwraps fast-xml-parser's `{ "#text": ... }` shape and plain strings alike. */
+/**
+ * Unwraps fast-xml-parser's `{ "#text": ... }` shape, plain strings/numbers,
+ * and arrays of any of the above (joining multiple text nodes, which can
+ * occur for repeated elements or mixed-content nodes).
+ */
 function textOf(node: unknown): string {
   if (node === null || node === undefined) return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
-  if (typeof node === "object" && "#text" in (node as Record<string, unknown>)) {
-    return textOf((node as Record<string, unknown>)["#text"]);
+  if (Array.isArray(node)) {
+    return node
+      .map((entry) => textOf(entry))
+      .filter((text) => text.length > 0)
+      .join(" ");
+  }
+  if (typeof node === "object") {
+    const record = node as Record<string, unknown>;
+    if ("#text" in record) return textOf(record["#text"]);
+    // Some feeds wrap CDATA/mixed content without a `#text` key (e.g. a
+    // `content:encoded` node that only ever contains character data ends up
+    // parsed as a bare string already handled above; this guards other
+    // object shapes fast-xml-parser may produce for the same tag).
+    if ("__cdata" in record) return textOf(record["__cdata"]);
   }
   return "";
 }
@@ -82,6 +98,15 @@ function summarize(html: unknown): string {
   return truncate(htmlToPlainText(textOf(html)), MAX_SUMMARY_LENGTH);
 }
 
+/** Returns the first candidate whose extracted text is non-empty. */
+function firstNonEmpty(...candidates: unknown[]): unknown {
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null) continue;
+    if (textOf(candidate).trim()) return candidate;
+  }
+  return undefined;
+}
+
 function parseDate(value: unknown): string | undefined {
   const raw = textOf(value);
   if (!raw) return undefined;
@@ -93,6 +118,21 @@ function isImageUrl(url: string | undefined, type: string | undefined): boolean 
   if (!url) return false;
   if (type && type.toLowerCase().startsWith("image")) return true;
   return /\.(jpe?g|png|gif|webp|avif)(\?.*)?$/i.test(url);
+}
+
+/**
+ * Best-effort fallback: pulls the first `<img src="...">` out of an
+ * HTML fragment (e.g. `content:encoded` or `description`). Only ever
+ * returns an absolute http(s) URL — never renders or otherwise trusts the
+ * surrounding markup.
+ */
+function extractImageFromHtml(html: unknown): string | undefined {
+  const text = textOf(html);
+  if (!text) return undefined;
+  const match = /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/i.exec(text);
+  if (!match) return undefined;
+  const url = match[1]?.trim();
+  return url && /^https?:\/\//i.test(url) ? url : undefined;
 }
 
 /** Best-effort image extraction from common RSS/Atom media conventions. */
@@ -124,9 +164,15 @@ function extractImage(item: Record<string, unknown>): string | undefined {
       const type = textOf(record["@_type"]);
       const href = textOf(record["@_href"]);
       if (rel === "enclosure" && isImageUrl(href, type)) return href;
+      // Some Atom feeds tag a preview image via rel="image" or type="image/*"
+      // on a plain <link> without marking it as an enclosure.
+      if (rel === "image" && isImageUrl(href, type)) return href;
     }
   }
-  return undefined;
+  // Fall back to any <img> found in the item's HTML body content.
+  return extractImageFromHtml(
+    firstNonEmpty(item["content:encoded"], item["content"], item["description"], item["summary"]),
+  );
 }
 
 /** RSS `<link>` is a plain string; Atom `<link>` is one or more elements with `href`/`rel`. */
@@ -176,6 +222,22 @@ function extractAuthor(item: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/**
+ * Picks the best available description/body field for the item summary.
+ * `description`/`summary` are preferred (they're already summary-length in
+ * most feeds); `content:encoded`/`content`/`dc:description` are fallbacks
+ * for feeds that only populate the full-body field.
+ */
+function extractDescriptionSource(item: Record<string, unknown>): unknown {
+  return firstNonEmpty(
+    item["description"],
+    item["summary"],
+    item["content:encoded"],
+    item["content"],
+    item["dc:description"],
+  );
+}
+
 function normalizeItems(items: Record<string, unknown>[]): NormalizedFeedItem[] {
   const normalized: NormalizedFeedItem[] = [];
   for (const item of items) {
@@ -193,7 +255,7 @@ function normalizeItems(items: Record<string, unknown>[]): NormalizedFeedItem[] 
         ...(guid !== undefined ? { guid } : {}),
         title,
         url,
-        summary: summarize(item["description"] ?? item["summary"] ?? item["content"]),
+        summary: summarize(extractDescriptionSource(item)),
         ...(publishedAt !== undefined ? { publishedAt } : {}),
         ...(author !== undefined ? { author } : {}),
         ...(imageUrl !== undefined ? { imageUrl } : {}),
