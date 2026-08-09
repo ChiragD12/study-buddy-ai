@@ -1,9 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { XMLParser } from "fast-xml-parser";
 
-import { CURRENT_AFFAIRS_FEEDS } from "../../src/features/current-affairs/feeds";
-import { htmlToPlainText } from "../../src/shared/utils/html";
-
 /**
  * Server-side RSS/Atom retrieval + normalization for the Current Affairs
  * feature.
@@ -13,12 +10,20 @@ import { htmlToPlainText } from "../../src/shared/utils/html";
  * headers on their feeds, so the client cannot fetch them directly. It is a
  * thin, stateless proxy/parser: no database, no auth, no third-party
  * service. Deployed as a Vercel serverless function at
- * `/api/current-affairs/feeds`, matching this project's existing
- * `api/**` TypeScript config and its planned Vercel-function architecture
- * for server-side work (see README's notifications section).
+ * `/api/current-affairs/feeds`.
  *
- * Only URLs already present in the app's own feed registry may be fetched
- * (an allowlist), so this cannot be used as an open URL-fetching proxy.
+ * IMPORTANT — this file is deployed by Vercel as an isolated serverless
+ * function and must be fully self-contained at runtime. It must NOT import
+ * anything from `../../src/**`: those files are part of the frontend
+ * application bundle, not the deployed function's dependency graph, and
+ * importing them causes `ERR_MODULE_NOT_FOUND` in production. The feed
+ * allowlist and the HTML-to-plain-text sanitizer are therefore inlined
+ * below rather than imported. If the app-side feed registry
+ * (`src/features/current-affairs/feeds.ts`) ever changes, mirror the
+ * change here too.
+ *
+ * Only URLs already present in the allowlist below may be fetched, so this
+ * cannot be used as an open URL-fetching proxy.
  */
 
 const FETCH_TIMEOUT_MS = 10_000;
@@ -28,6 +33,18 @@ const REQUEST_HEADERS = {
   Accept:
     "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
 };
+
+/**
+ * Verified public RSS/Atom sources used by the generic ingestion pipeline.
+ * Mirrors `src/features/current-affairs/feeds.ts` — kept as a local,
+ * inlined allowlist so this serverless function has no runtime dependency
+ * on the frontend source tree (see file header).
+ */
+const CURRENT_AFFAIRS_FEED_URLS: readonly string[] = [
+  "https://indianexpress.com/section/upsc-current-affairs/feed/",
+  "https://indianexpress.com/section/explained/feed/",
+  "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=5",
+];
 
 interface NormalizedFeedItem {
   guid?: string | undefined;
@@ -62,6 +79,83 @@ function sendJson(res: ServerResponse, status: number, body: FeedResponseBody): 
   res.setHeader("Cache-Control", "no-store");
   res.end(JSON.stringify(body));
 }
+
+// ---------------------------------------------------------------------------
+// HTML → plain text sanitization (inlined from src/shared/utils/html.ts so
+// this function has no runtime dependency on the frontend source tree).
+// Pure string logic only — no DOM APIs, never renders HTML, never used with
+// `dangerouslySetInnerHTML`. Only produces plain text for the JSON response.
+// ---------------------------------------------------------------------------
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  rsquo: "’",
+  lsquo: "‘",
+  rdquo: "”",
+  ldquo: "“",
+};
+
+const ENTITY_PATTERN = /&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g;
+
+/** Decodes one layer of named/numeric HTML entities. */
+function decodeEntitiesOnce(value: string): string {
+  return value.replace(ENTITY_PATTERN, (match, entity: string) => {
+    if (entity.startsWith("#x") || entity.startsWith("#X")) {
+      const code = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    if (entity.startsWith("#")) {
+      const code = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    return NAMED_ENTITIES[entity] ?? match;
+  });
+}
+
+/**
+ * Decodes HTML entities, including entities that have been double-encoded
+ * by an upstream feed (e.g. `&amp;#124;` → `&#124;` → `|`). Bounded to a
+ * handful of passes so it can never loop indefinitely on malformed input,
+ * and stops as soon as a pass makes no further change.
+ */
+function decodeEntities(value: string): string {
+  let current = value;
+  for (let pass = 0; pass < 5; pass++) {
+    const next = decodeEntitiesOnce(current);
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
+/**
+ * Strips all markup (including script/style contents and HTML comments)
+ * and returns normalized, whitespace-collapsed plain text. Never executes
+ * or otherwise trusts the input — safe to include directly in the JSON
+ * response as plain text.
+ */
+function htmlToPlainText(html: string | undefined | null): string {
+  if (!html) return "";
+  const withoutComments = html.replace(/<!--[\s\S]*?-->/g, " ");
+  const withoutDangerousBlocks = withoutComments
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ");
+  const withoutTags = withoutDangerousBlocks.replace(/<[^>]*>/g, " ");
+  const decoded = decodeEntities(withoutTags);
+  return decoded.replace(/\s+/g, " ").trim();
+}
+
+// ---------------------------------------------------------------------------
+// XML node helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Unwraps fast-xml-parser's `{ "#text": ... }` shape, plain strings/numbers,
@@ -320,7 +414,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const allowed = CURRENT_AFFAIRS_FEEDS.some((feed) => feed.url === feedUrl);
+  const allowed = CURRENT_AFFAIRS_FEED_URLS.includes(feedUrl);
   if (!allowed) {
     sendJson(res, 403, { error: "This URL is not a configured Current Affairs feed." });
     return;
