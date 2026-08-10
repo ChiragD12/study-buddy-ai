@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 export function PageContainer({ children }: { children: ReactNode }) {
   return <div className="mx-auto w-full max-w-3xl px-5 pb-24 pt-6 lg:pt-10">{children}</div>;
 }
@@ -14,9 +16,11 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex items-start justify-between gap-4">
+    <header className="animate-fade-in-up mb-6 flex items-start justify-between gap-4 border-b border-border/40 pb-5">
       <div>
-        <h1 className="text-balance-tight text-2xl font-semibold lg:text-3xl">{title}</h1>
+        <h1 className="text-balance-tight text-2xl font-semibold tracking-tight lg:text-3xl">
+          {title}
+        </h1>
         {description ? (
           <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-muted-foreground">
             {description}
@@ -40,9 +44,12 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="surface-card flex flex-col items-center gap-3 px-6 py-12 text-center">
+    <div className="glass-1 animate-fade-in-up flex flex-col items-center gap-3 px-6 py-14 text-center">
       {icon ? (
-        <div className="text-muted-foreground" aria-hidden="true">
+        <div
+          className="flex size-12 items-center justify-center rounded-full bg-glass-2 text-muted-foreground"
+          aria-hidden="true"
+        >
           {icon}
         </div>
       ) : null}
@@ -53,10 +60,25 @@ export function EmptyState({
   );
 }
 
-/** Explicit, honest state for capabilities that are intentionally deferred. */
-export function NotImplementedNote({ children }: { children: ReactNode }) {
+/** Explicit, honest state for capabilities that are intentionally deferred,
+ *  or a routine informational notice. Pass `tone="warning"` for genuine
+ *  errors so they read distinctly without becoming an alarming red box. */
+export function NotImplementedNote({
+  children,
+  tone = "info",
+}: {
+  children: ReactNode;
+  tone?: "info" | "warning";
+}) {
   return (
-    <p className="rounded-xl border border-dashed px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+    <p
+      className={cn(
+        "mt-3 rounded-xl border px-4 py-3 text-sm leading-relaxed",
+        tone === "warning"
+          ? "border-warning/30 bg-warning/10 text-foreground"
+          : "border-dashed border-border text-muted-foreground",
+      )}
+    >
       {children}
     </p>
   );

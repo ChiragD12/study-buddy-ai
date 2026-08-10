@@ -1,6 +1,12 @@
 import { localTools } from "@/ai/tools/localTools";
 import { toolRegistry } from "@/ai/tools/registry";
-import type { AIMessage, AIProvider, AIToolCall, AIToolResult } from "@/ai/types";
+import type {
+  AIMessage,
+  AIProvider,
+  AIToolCall,
+  AIToolGenerateOptions,
+  AIToolResult,
+} from "@/ai/types";
 
 export interface PendingToolAction {
   calls: AIToolCall[];
@@ -29,12 +35,25 @@ function resultsFor(calls: AIToolCall[]): Promise<AIToolResult[]> {
   );
 }
 
+export interface RunAssistantToolsResult {
+  /** A mutating tool call needs user confirmation before it can run. */
+  pending?: PendingToolAction;
+  /**
+   * The finished turn's text. When the caller supplied `onTextDelta`, this
+   * is exactly the concatenation of the deltas it already received — the
+   * final answer was generated (and streamed) exactly once, inside the
+   * provider call for this turn, not regenerated here.
+   */
+  text?: string;
+}
+
 export async function runAssistantTools(
   provider: AIProvider,
   history: AIMessage[],
   confirmed = false,
   onToolActivity?: ToolActivity,
-): Promise<{ text?: string; pending?: PendingToolAction }> {
+  streamOptions?: AIToolGenerateOptions,
+): Promise<RunAssistantToolsResult> {
   let messages = history;
   if (confirmed) {
     const pendingMessage = messages.at(-1);
@@ -47,7 +66,11 @@ export async function runAssistantTools(
     ];
   }
   for (let turn = 0; turn < 4; turn++) {
-    const completion = await provider.generateWithTools(messages, localTools);
+    // Every turn is a single Gemini generation. `streamOptions.onTextDelta`
+    // only ever fires from inside this call, and only for the turn that
+    // actually turns out to be the final, tool-free answer — see the
+    // gating logic in the Gemini provider's generateWithTools.
+    const completion = await provider.generateWithTools(messages, localTools, streamOptions);
     if (!completion.toolCalls.length)
       return { text: completion.text || "I couldn't complete that request." };
     const calls = completion.toolCalls;

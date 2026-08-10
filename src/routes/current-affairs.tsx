@@ -10,6 +10,7 @@ import { settingsRepository } from "@/data/repositories/settings.repository";
 import { now } from "@/data/repositories/util";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   EmptyState,
   NotImplementedNote,
@@ -78,6 +79,14 @@ export const Route = createFileRoute("/current-affairs")({
   }),
   component: CurrentAffairsPage,
 });
+
+function filterSelectClass(active: boolean) {
+  return `tap-target rounded-xl border px-3 text-sm backdrop-blur-md transition-colors duration-150 ${
+    active
+      ? "border-primary/50 bg-primary/10 text-primary"
+      : "border-border/70 bg-glass-surface text-foreground"
+  }`;
+}
 
 function CurrentAffairsPage() {
   const initialStored = useRepoQuery(() => currentAffairsRepository.list());
@@ -242,7 +251,7 @@ function CurrentAffairsPage() {
           offline.
         </NotImplementedNote>
       ) : refreshError ? (
-        <NotImplementedNote>
+        <NotImplementedNote tone="warning">
           {refreshError}{" "}
           {hasCachedArticles
             ? "Showing previously downloaded articles."
@@ -265,7 +274,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by category"
             value={category}
             onChange={(event) => setCategory(event.target.value)}
-            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
+            className={filterSelectClass(Boolean(category))}
           >
             <option value="">All categories</option>
             {categories.map((item) => (
@@ -278,7 +287,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by source"
             value={source}
             onChange={(event) => setSource(event.target.value)}
-            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
+            className={filterSelectClass(Boolean(source))}
           >
             <option value="">All sources</option>
             {sources.map((item) => (
@@ -291,7 +300,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by GK topic"
             value={topic}
             onChange={(event) => setTopic(event.target.value as CurrentAffairsTopic | "")}
-            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
+            className={filterSelectClass(Boolean(topic))}
           >
             <option value="">All GK topics</option>
             {CURRENT_AFFAIRS_TOPICS.map((item) => (
@@ -304,7 +313,7 @@ function CurrentAffairsPage() {
             aria-label="Filter by importance"
             value={importance}
             onChange={(event) => setImportance(event.target.value as GkImportanceLevel | "")}
-            className="tap-target rounded-xl border border-border/70 bg-glass-surface px-3 text-sm backdrop-blur-md"
+            className={filterSelectClass(Boolean(importance))}
           >
             <option value="">All importance</option>
             {(Object.keys(IMPORTANCE_LABELS) as GkImportanceLevel[]).map((item) => (
@@ -324,7 +333,18 @@ function CurrentAffairsPage() {
       </div>
       <div className="mt-5">
         {stored === undefined ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <ul className="flex flex-col gap-3" aria-label="Loading current affairs">
+            {[0, 1, 2, 3].map((i) => (
+              <li key={i} className="surface-card flex items-start gap-3 p-4">
+                <Skeleton className="size-16 shrink-0 rounded-lg sm:size-20" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : !stored.length ? (
           <EmptyState
             icon={<Newspaper className="size-6" />}
@@ -333,6 +353,7 @@ function CurrentAffairsPage() {
           />
         ) : !items.length ? (
           <EmptyState
+            icon={<Search className="size-6" />}
             title="No current-affairs items match your search"
             description="Try another search or filter."
           />
@@ -379,6 +400,9 @@ function ArticleCard({
     }
   }
 
+  const classification = isUnclassified(item) ? undefined : item.classification;
+  const isCritical = classification?.importanceLevel === "critical";
+
   return (
     <li
       role="link"
@@ -386,7 +410,9 @@ function ArticleCard({
       aria-label={item.title}
       onClick={onOpen}
       onKeyDown={handleKeyDown}
-      className="surface-card cursor-pointer p-4"
+      className={`surface-card hover-lift cursor-pointer p-4 ${
+        isCritical ? "border-l-2 border-l-destructive/60" : ""
+      }`}
     >
       <div className="flex items-start gap-3">
         {showImage ? (

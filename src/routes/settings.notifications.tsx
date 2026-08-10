@@ -16,8 +16,9 @@ import {
   type NotificationPreferences,
 } from "@/features/notifications/preferences";
 import { CURRENT_AFFAIRS_TOPIC_LABELS } from "@/shared/types/domain";
-import { Button } from "@/components/ui/button";
 import { PageContainer, PageHeader } from "@/shared/components/Page";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/settings/notifications")({
   head: () => ({
@@ -135,6 +136,11 @@ function NotificationSettings() {
     if (preferences.currentAffairsEnabled) void syncCategoriesWithServer(categories);
   }
 
+  const enabled = preferences.currentAffairsEnabled;
+  const blocked =
+    state === "unsupported" || state === "requires-install" || state === "permission-denied";
+  const statusTone = enabled ? "success" : blocked ? "warning" : "muted";
+
   return (
     <PageContainer>
       <PageHeader
@@ -143,42 +149,59 @@ function NotificationSettings() {
       />
 
       <div className="surface-card space-y-4 p-5">
-        <p className="text-sm leading-relaxed">{state ? STATE_COPY[state] : "Checking…"}</p>
-        <label className="flex items-center justify-between gap-4 text-sm font-medium">
-          <span>Current Affairs notifications</span>
-          <input
-            type="checkbox"
-            checked={preferences.currentAffairsEnabled}
-            disabled={
-              state === "unsupported" ||
-              state === "requires-install" ||
-              state === "permission-denied"
-            }
-            onChange={(event) => void setEnabled(event.target.checked)}
-            className="size-5 accent-primary"
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                statusTone === "success" && "bg-success",
+                statusTone === "warning" && "bg-warning",
+                statusTone === "muted" && "bg-muted-foreground/50",
+              )}
+              aria-hidden="true"
+            />
+            <span className="text-sm font-medium">
+              {enabled ? "Notifications enabled" : "Notifications disabled"}
+            </span>
+          </div>
+          <Switch
+            checked={enabled}
+            disabled={blocked}
+            onCheckedChange={(checked) => void setEnabled(checked)}
+            aria-label="Toggle Current Affairs notifications"
           />
-        </label>
+        </div>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {state ? STATE_COPY[state] : "Checking…"}
+        </p>
       </div>
 
       <div className="surface-card mt-4 space-y-4 p-5">
         <div>
           <h2 className="font-medium">Categories</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose the topics allowed to notify you.
+            Choose the topics allowed to notify you. Only articles the classifier marks important or
+            critical are sent for your selected topics.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {NOTIFICATION_CATEGORIES.map((category) => (
-            <label key={category} className="flex items-center gap-3 text-sm">
-              <input
-                type="checkbox"
-                checked={preferences.categories.includes(category)}
-                onChange={() => toggleCategory(category)}
-                className="size-4 accent-primary"
-              />
-              {CURRENT_AFFAIRS_TOPIC_LABELS[category]}
-            </label>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          {NOTIFICATION_CATEGORIES.map((category) => {
+            const active = preferences.categories.includes(category);
+            return (
+              <button
+                key={category}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleCategory(category)}
+                className={cn(
+                  "chip tap-target px-3.5 py-2 text-sm font-medium",
+                  active ? "chip-active" : "text-foreground hover:bg-glass-3",
+                )}
+              >
+                {CURRENT_AFFAIRS_TOPIC_LABELS[category]}
+              </button>
+            );
+          })}
         </div>
       </div>
     </PageContainer>

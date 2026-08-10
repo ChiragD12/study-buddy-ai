@@ -135,32 +135,38 @@ function extractGroundingSources(payload: GeminiResponse): { uri: string; title?
   return sources;
 }
 
-function extractToolCalls(payload: GeminiResponse) {
-  return (payload.candidates ?? []).flatMap((candidate) =>
-    (candidate.content?.parts ?? []).flatMap((part, index) => {
-      const call = part.functionCall;
-      if (!call?.name) return [];
-      return [
-        {
-          // Local bookkeeping ID only — used to correlate this call with its
-          // AIToolResult inside this app. Never sent to Gemini.
-          internalId: `${call.name}-${index}`,
-          // Only set when Gemini actually returned an id (normally just for
-          // parallel calls). Never fabricated — absence is preserved as
-          // absence, not papered over with a synthetic value.
-          ...(call.id ? { providerCallId: call.id } : {}),
-          name: call.name,
-          args: call.args ?? {},
-          // thoughtSignature lives on the Part, alongside functionCall —
-          // not inside it. Preserved opaquely and replayed as-is in
-          // toContents(); never read or interpreted here.
-          ...(part.thoughtSignature
-            ? { providerMetadata: { thoughtSignature: part.thoughtSignature } }
-            : {}),
-        },
-      ];
-    }),
-  );
+/**
+ * Builds AIToolCall entries from a flat list of Gemini Parts. `index` is the
+ * position within *that list*, so callers that assemble `parts` themselves
+ * (e.g. streaming, where functionCall parts are collected across multiple
+ * SSE chunks into one array) must pass the full accumulated list here —
+ * never call this per-chunk, or parallel calls sharing a chunk-local index
+ * of 0 would collide on the same internalId.
+ */
+function toolCallsFromParts(parts: GeminiPart[]) {
+  return parts.flatMap((part, index) => {
+    const call = part.functionCall;
+    if (!call?.name) return [];
+    return [
+      {
+        // Local bookkeeping ID only — used to correlate this call with its
+        // AIToolResult inside this app. Never sent to Gemini.
+        internalId: `${call.name}-${index}`,
+        // Only set when Gemini actually returned an id (normally just for
+        // parallel calls). Never fabricated — absence is preserved as
+        // absence, not papered over with a synthetic value.
+        ...(call.id ? { providerCallId: call.id } : {}),
+        name: call.name,
+        args: call.args ?? {},
+        // thoughtSignature lives on the Part, alongside functionCall —
+        // not inside it. Preserved opaquely and replayed as-is in
+        // toContents(); never read or interpreted here.
+        ...(part.thoughtSignature
+          ? { providerMetadata: { thoughtSignature: part.thoughtSignature } }
+          : {}),
+      },
+    ];
+  });
 }
 
 function safeErrorMessage(message: string): string {
@@ -280,22 +286,97 @@ export function createGeminiProvider(model: string): AIProvider {
       }
       return extractText(payload);
     },
-    async generateWithTools(messages, tools): Promise<AICompletion> {
-      const response = await call("generateContent", buildToolBody(messages, tools));
-      const payload = (await response.json()) as GeminiResponse;
-      if (!response.ok)
+    /**
+     * One Gemini generation per turn — always issued against the SSE
+     * endpoint so that whichever kind of turn this is, it costs exactly one
+     * request:
+     *  - a tool-calling turn: functionCall parts accumulate as they arrive
+     *    (they come whole within a chunk, never fragmented) and are
+     *    returned as `toolCalls`; `onTextDelta` is never invoked for this
+     *    turn.
+     *  - the final natural-language turn: text parts stream in as
+     *    `onTextDelta` is called live, chunk by chunk, as Gemini emits
+     *    them — no second "real" generation is issued to re-derive text
+     *    that was already produced once.
+     * A turn is only known to be tool-free once its stream ends without
+     * ever producing a functionCall part, so `onTextDelta` is gated on
+     * "no functionCall seen yet in this turn" rather than decided upfront.
+     */
+    async generateWithTools(messages, tools, options): Promise<AICompletion> {
+      const response = await call(
+        "streamGenerateContent?alt=sse",
+        buildToolBody(messages, tools),
+        options?.signal,
+      );
+      if (!response.ok || !response.body) {
+        const payload = (await response.json().catch(() => ({}))) as GeminiResponse;
         throw new Error(
           safeErrorMessage(payload.error?.message ?? `Gemini error ${response.status}`),
         );
-      const toolCalls = extractToolCalls(payload);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let text = "";
+      let sawFunctionCall = false;
+      const functionParts: GeminiPart[] = [];
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === "[DONE]") continue;
+
+            let payload: GeminiResponse;
+            try {
+              payload = JSON.parse(data) as GeminiResponse;
+            } catch {
+              continue; // Ignore partial/malformed SSE frames.
+            }
+            if (payload.error) {
+              throw new Error(safeErrorMessage(payload.error.message ?? "Gemini stream error"));
+            }
+
+            const parts = (payload.candidates ?? []).flatMap(
+              (candidate) => candidate.content?.parts ?? [],
+            );
+            for (const part of parts) {
+              if (part.functionCall) {
+                functionParts.push(part);
+                sawFunctionCall = true;
+              }
+            }
+            const chunkText = parts.map((part) => part.text ?? "").join("");
+            if (chunkText) {
+              text += chunkText;
+              // Only stream live once we're confident this turn isn't
+              // going to resolve into a tool call — any text seen before
+              // a functionCall shows up later in the same turn simply
+              // never reaches the UI callback.
+              if (!sawFunctionCall) options?.onTextDelta?.(chunkText);
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      const toolCalls = toolCallsFromParts(functionParts);
       return {
-        text: extractText(payload),
+        text,
         toolCalls,
         // Only needed (and only present) when this turn included a tool
         // call — plain text turns have nothing Gemini requires us to echo
         // back, and toContents() falls back to plain text reconstruction.
         ...(toolCalls.length
-          ? { providerRawParts: payload.candidates?.[0]?.content?.parts ?? [] }
+          ? { providerRawParts: [...(text ? [{ text }] : []), ...functionParts] }
           : {}),
       };
     },

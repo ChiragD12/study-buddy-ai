@@ -5,6 +5,7 @@ import {
   ChatComposer,
   MessageBubble,
   SuggestionChips,
+  ThinkingIndicator,
 } from "@/features/assistant/components/ChatParts";
 import { StudySnapshot } from "@/features/assistant/components/StudySnapshot";
 import { useAssistantChat } from "@/features/assistant/useAssistantChat";
@@ -71,6 +72,9 @@ function AssistantPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasMessages = messages.length > 0;
   const hello = useMemo(() => greeting(), []);
+  const lastMessage = messages[messages.length - 1];
+  const isAssistantThinking =
+    lastMessage?.role === "assistant" && lastMessage.state === "streaming" && !lastMessage.content;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -90,9 +94,19 @@ function AssistantPage() {
                   className="animate-fade-in-up"
                   style={{ animationDelay: `${Math.min(index, 4) * 40}ms` }}
                 >
-                  <MessageBubble message={message} />
+                  <MessageBubble message={message} activity={activity} />
                 </div>
               ))}
+              {/* Covers only the brief gap between the user's message and the
+                  assistant placeholder landing in `messages` (e.g. while
+                  resolving the provider). Once that placeholder exists,
+                  MessageBubble's own indicator takes over — this never
+                  renders alongside it. */}
+              {status !== "idle" && !isAssistantThinking ? (
+                <div className="animate-fade-in-up px-0.5">
+                  <ThinkingIndicator label={activity} />
+                </div>
+              ) : null}
               <div ref={bottomRef} />
             </div>
           ) : (
@@ -110,11 +124,6 @@ function AssistantPage() {
           {error ? (
             <p role="status" className="animate-fade-in mt-4 text-sm text-destructive">
               {error}
-            </p>
-          ) : null}
-          {status !== "idle" ? (
-            <p role="status" className="animate-fade-in mt-4 text-sm text-muted-foreground">
-              {activity ?? "Thinking…"}
             </p>
           ) : null}
           {pendingAction ? (

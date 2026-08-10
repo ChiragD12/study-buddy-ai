@@ -48,7 +48,7 @@ export function StudySnapshot() {
     <div
       role="region"
       aria-label="Study snapshot"
-      className="animate-in fade-in slide-in-from-top-2 mx-auto mb-4 w-full max-w-2xl rounded-3xl border bg-surface-raised p-5 shadow-[var(--shadow-soft)] duration-300"
+      className="glass-2 animate-in fade-in slide-in-from-top-2 mx-auto mb-4 w-full max-w-2xl p-5 duration-300"
     >
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -58,20 +58,27 @@ export function StudySnapshot() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss study snapshot"
-          className="tap-target -m-2 inline-flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent"
+          className="tap-target -m-2 inline-flex items-center justify-center rounded-full text-muted-foreground transition-all duration-150 hover:bg-accent/70 hover:text-foreground active:scale-95"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </div>
 
       {nearest ? (
-        <div className="mt-3">
-          <p className="text-lg font-semibold">{nearest.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {formatRelativeDays(daysUntil(nearest.examDate))}
-            {nearest.examDate ? ` · ${new Date(nearest.examDate).toLocaleDateString()}` : ""}
-          </p>
+        <div className="mt-3 flex items-baseline gap-2">
+          <p className="text-lg font-semibold tracking-tight">{nearest.name}</p>
         </div>
+      ) : null}
+      {nearest ? (
+        <p className="text-sm text-primary">
+          {formatRelativeDays(daysUntil(nearest.examDate))}
+          {nearest.examDate ? (
+            <span className="text-muted-foreground">
+              {" "}
+              · {new Date(nearest.examDate).toLocaleDateString()}
+            </span>
+          ) : null}
+        </p>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
           No upcoming exam yet — add one from Exams to see your countdown here.
@@ -79,13 +86,13 @@ export function StudySnapshot() {
       )}
 
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-2xl bg-surface-sunken px-3 py-2.5">
+        <div className="glass-1 px-3 py-2.5">
           <dt className="text-xs text-muted-foreground">Today's plan</dt>
           <dd className="font-medium">
             {todayTasks.length ? `${done}/${todayTasks.length} done` : "Nothing scheduled"}
           </dd>
         </div>
-        <div className="rounded-2xl bg-surface-sunken px-3 py-2.5">
+        <div className="glass-1 px-3 py-2.5">
           <dt className="text-xs text-muted-foreground">Remaining today</dt>
           <dd className="font-medium">{Math.max(todayTasks.length - done, 0)}</dd>
         </div>

@@ -80,6 +80,20 @@ export interface AIStreamChunk {
   delta: string;
 }
 
+/**
+ * Options for `generateWithTools`. When a turn's model generation turns out
+ * to carry no tool calls — i.e. it's the final natural-language answer —
+ * the provider streams that answer's text through `onTextDelta` as it
+ * arrives, instead of the caller having to issue a second, separate
+ * generation just to get incremental text. Turns that do produce tool
+ * calls never invoke `onTextDelta`: there is exactly one model generation
+ * per turn either way, streamed or not.
+ */
+export interface AIToolGenerateOptions {
+  signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void;
+}
+
 export interface AIProviderStatus {
   configured: boolean;
   providerId: string;
@@ -99,7 +113,11 @@ export interface AIProvider {
   status(): Promise<AIProviderStatus>;
   testConnection(): Promise<{ ok: boolean; message: string }>;
   generate(messages: AIMessage[], options?: AIGenerateOptions): Promise<string>;
-  generateWithTools(messages: AIMessage[], tools: AITool[]): Promise<AICompletion>;
+  generateWithTools(
+    messages: AIMessage[],
+    tools: AITool[],
+    options?: AIToolGenerateOptions,
+  ): Promise<AICompletion>;
   stream(
     messages: AIMessage[],
     options?: AIGenerateOptions,

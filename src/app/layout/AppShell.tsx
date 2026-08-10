@@ -21,9 +21,12 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   to={item.to}
                   onClick={onNavigate}
                   activeOptions={{ exact: item.to === "/" }}
-                  className="tap-target flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-[0.95rem] text-sidebar-foreground transition-all duration-200 hover:border-white/10 hover:bg-white/10 data-[status=active]:border-white/10 data-[status=active]:bg-white/12 data-[status=active]:font-semibold data-[status=active]:text-sidebar-accent-foreground"
+                  className="tap-target group relative flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-[0.95rem] text-sidebar-foreground transition-all duration-200 before:absolute before:-left-3 before:top-1/2 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary before:opacity-0 before:transition-opacity before:duration-200 hover:border-white/10 hover:bg-white/10 active:scale-[0.98] data-[status=active]:border-white/10 data-[status=active]:bg-white/12 data-[status=active]:font-semibold data-[status=active]:text-sidebar-accent-foreground data-[status=active]:before:opacity-100"
                 >
-                  <item.icon className="size-[1.15rem] shrink-0 opacity-80" aria-hidden="true" />
+                  <item.icon
+                    className="size-[1.15rem] shrink-0 opacity-80 transition-opacity group-data-[status=active]:opacity-100"
+                    aria-hidden="true"
+                  />
                   <span>{item.label}</span>
                 </Link>
               </li>
@@ -67,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex h-14 items-center gap-2 px-2 pl-safe pr-safe">
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger
-                className="tap-target inline-flex items-center justify-center rounded-xl text-foreground transition-colors hover:bg-accent"
+                className="tap-target inline-flex items-center justify-center rounded-xl text-foreground transition-all duration-150 hover:bg-accent active:scale-95"
                 aria-label="Open navigation"
               >
                 <Menu className="size-5" aria-hidden="true" />

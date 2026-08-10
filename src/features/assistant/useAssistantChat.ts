@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { buildAssistantContext, systemPrompt } from "@/ai/context/assistantContext";
 import { resolveProvider } from "@/ai/providers";
@@ -26,6 +26,44 @@ function friendlyError(cause: unknown): string {
   if (cause instanceof AINotConfiguredError) return cause.message;
   if (cause instanceof Error && cause.message.includes("find")) return cause.message;
   return "I couldn't complete that request. Please try again.";
+}
+
+function isAbortError(cause: unknown): boolean {
+  return (
+    (cause instanceof DOMException && cause.name === "AbortError") ||
+    (cause instanceof Error && cause.name === "AbortError")
+  );
+}
+
+/**
+ * Builds the `onTextDelta` callback passed into `runAssistantTools`. It only
+ * ever fires for the turn that turns out to be the tool-free final answer,
+ * streamed live from inside that single Gemini generation — see
+ * gemini.ts's `generateWithTools`. Each call appends to the same in-memory
+ * buffer and repaints the same assistant message by id; nothing here
+ * touches IndexedDB — that happens once, via `completeMessage`, after the
+ * turn (or the whole `send`/`confirmPending` call) resolves.
+ */
+function createTextDeltaHandler(
+  assistantMessageId: string,
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  setActivity: (value: string | null) => void,
+  contentRef: { current: string },
+): (delta: string) => void {
+  let clearedActivity = false;
+  return (delta: string) => {
+    if (!clearedActivity) {
+      clearedActivity = true;
+      setActivity(null);
+    }
+    contentRef.current += delta;
+    const next = contentRef.current;
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantMessageId ? { ...message, content: next } : message,
+      ),
+    );
+  };
 }
 
 function activityFor(names: string[]): string {
@@ -122,6 +160,9 @@ export function useAssistantChat() {
     const assistantMessage = pendingMessageId
       ? messages.find((message) => message.id === pendingMessageId)
       : undefined;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const contentRef = { current: "" };
     try {
       const provider = await resolveProvider();
       if (!provider || !assistantMessage) {
@@ -130,18 +171,38 @@ export function useAssistantChat() {
       }
       const result = await runAssistantTools(provider, pendingAction.history, true, (names) => {
         setActivity(activityFor(names));
+      }, {
+        signal: controller.signal,
+        onTextDelta: createTextDeltaHandler(assistantMessage.id, setMessages, setActivity, contentRef),
       });
       await completeMessage(
         assistantMessage.id,
-        result.text ?? "The requested action was completed.",
+        contentRef.current || result.text || "The requested action was completed.",
       );
     } catch (cause) {
-      if (assistantMessage) await completeMessage(assistantMessage.id, friendlyError(cause));
+      if (assistantMessage) {
+        // A user-initiated Stop mid-stream isn't a failure — close the turn
+        // out normally with whatever text had already streamed in, rather
+        // than surfacing an error.
+        await completeMessage(
+          assistantMessage.id,
+          isAbortError(cause)
+            ? contentRef.current || "The requested action was completed."
+            : friendlyError(cause),
+        );
+      }
     } finally {
       setPendingMessageId(null);
       confirmingRef.current = false;
-      setStatus("idle");
-      setActivity(null);
+      // Only this invocation's own controller may reset the shared status —
+      // if a newer send()/confirmPending() call has already taken over
+      // abortRef (e.g. the user stopped this turn and immediately sent a
+      // new message), this stale finally must not clobber that active turn.
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setStatus("idle");
+        setActivity(null);
+      }
     }
   }, [completeMessage, conversationId, messages, pendingAction, pendingMessageId]);
 
@@ -209,6 +270,7 @@ export function useAssistantChat() {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      const contentRef = { current: "" };
 
       try {
         const context = await buildAssistantContext();
@@ -220,9 +282,20 @@ export function useAssistantChat() {
           ...(await Promise.all(priorMessages.map(toAIMessage))),
         ];
         setStatus("streaming");
-        const result = await runAssistantTools(provider, history, false, (names) => {
-          setActivity(activityFor(names));
-        });
+        // A single call runs the tool loop; the turn that comes back with
+        // no tool calls is the final answer, and its text streams live
+        // into this same assistant message via onTextDelta as it's
+        // generated — never a second, separate generation.
+        const result = await runAssistantTools(
+          provider,
+          history,
+          false,
+          (names) => setActivity(activityFor(names)),
+          {
+            signal: controller.signal,
+            onTextDelta: createTextDeltaHandler(assistantMessage.id, setMessages, setActivity, contentRef),
+          },
+        );
         if (result.pending) {
           setPendingAction(result.pending);
           setPendingMessageId(assistantMessage.id);
@@ -233,22 +306,36 @@ export function useAssistantChat() {
         } else {
           await completeMessage(
             assistantMessage.id,
-            result.text ?? "I couldn't complete that request.",
+            contentRef.current || result.text || "I couldn't complete that request.",
           );
         }
       } catch (cause) {
-        const message = friendlyError(cause);
-        setError(message);
-        await chatRepository.updateMessage(assistantMessage.id, { state: "error", error: message });
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === assistantMessage.id ? { ...item, state: "error", error: message } : item,
-          ),
-        );
+        if (isAbortError(cause)) {
+          // User pressed Stop mid-stream — keep whatever text had already
+          // arrived and close the turn out normally rather than as an error.
+          await completeMessage(assistantMessage.id, contentRef.current || "Stopped.");
+        } else {
+          const message = friendlyError(cause);
+          setError(message);
+          await chatRepository.updateMessage(assistantMessage.id, {
+            state: "error",
+            error: message,
+          });
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === assistantMessage.id ? { ...item, state: "error", error: message } : item,
+            ),
+          );
+        }
       } finally {
-        abortRef.current = null;
-        setStatus("idle");
-        setActivity(null);
+        // Only this invocation's own controller may reset the shared status
+        // — see the matching guard in confirmPending for why (avoids a
+        // stopped-then-immediately-resent turn clobbering the new one).
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setStatus("idle");
+          setActivity(null);
+        }
       }
     },
     [completeMessage, conversationId, status],

@@ -22,7 +22,33 @@ import {
   type PendingAttachment,
 } from "@/features/assistant/attachments";
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export function ThinkingIndicator({ label }: { label?: string | null }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+      <span className="relative flex size-1.5 shrink-0">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/50" />
+        <span className="relative inline-flex size-1.5 rounded-full bg-primary/70" />
+      </span>
+      <span>{label || "Thinking"}</span>
+      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+        <span className="size-1 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
+        <span className="size-1 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
+        <span className="size-1 animate-bounce rounded-full bg-muted-foreground/50" />
+      </span>
+    </span>
+  );
+}
+
+export function MessageBubble({
+  message,
+  activity,
+}: {
+  message: ChatMessage;
+  /** Tool-activity label ("Searching your notes…") for the in-flight assistant
+   *  turn. Only ever relevant to a message that is still streaming with no
+   *  content yet — see ThinkingIndicator usage below. */
+  activity?: string | null;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1.5">
@@ -49,12 +75,14 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
             ))}
           </ul>
         ) : null}
-        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-primary px-4 py-2.5 text-[0.97rem] leading-relaxed text-primary-foreground">
+        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-primary px-4 py-2.5 text-[0.97rem] leading-relaxed text-primary-foreground shadow-[0_1px_2px_oklch(0_0_0/0.06),0_10px_24px_-16px_oklch(0_0_0/0.35)]">
           {message.content}
         </div>
       </div>
     );
   }
+
+  const isThinking = message.state === "streaming" && !message.content;
 
   return (
     <div className="space-y-2">
@@ -65,10 +93,14 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         </p>
       ) : (
         <div className="whitespace-pre-wrap text-[0.97rem] leading-relaxed text-foreground">
-          {message.content}
-          {message.state === "streaming" && !message.content ? (
-            <span className="animate-pulse text-muted-foreground">Thinking…</span>
-          ) : null}
+          {isThinking ? (
+            <ThinkingIndicator label={activity} />
+          ) : (
+            // This span only mounts once — the moment content first arrives —
+            // and stays mounted as `message.content` keeps updating, so the
+            // one-time entrance fade never replays on subsequent updates.
+            <span className="animate-fade-in inline">{message.content}</span>
+          )}
         </div>
       )}
 
@@ -102,7 +134,7 @@ export function SuggestionChips({
           <button
             type="button"
             onClick={() => onSelect(suggestion)}
-            className="tap-target w-full rounded-2xl border bg-surface px-4 py-3 text-left text-[0.95rem] transition-colors hover:bg-accent active:scale-[0.995]"
+            className="chip tap-target w-full px-4 py-3 text-left text-[0.95rem] hover:bg-glass-3 active:scale-[0.98]"
           >
             {suggestion}
           </button>
@@ -254,7 +286,7 @@ export function ChatComposer({
   return (
     <form
       onSubmit={submit}
-      className="surface-card flex flex-col gap-2 rounded-3xl p-2 shadow-[var(--shadow-lifted)]"
+      className="surface-card flex flex-col gap-2 rounded-3xl p-2 shadow-[var(--shadow-lifted)] transition-shadow duration-200 focus-within:shadow-[0_0_0_1px_var(--color-ring),var(--shadow-lifted)]"
     >
       {attachments.length > 0 ? (
         <ul className="flex flex-wrap gap-2 px-1 pt-1">
@@ -285,7 +317,7 @@ export function ChatComposer({
             fileInputRef.current?.click();
           }}
           aria-label="Attach a file"
-          className="tap-target inline-flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent"
+          className="tap-target inline-flex items-center justify-center rounded-full text-muted-foreground transition-all duration-150 hover:bg-accent active:scale-90"
         >
           <Paperclip className="size-[1.15rem]" aria-hidden="true" />
         </button>
@@ -314,12 +346,15 @@ export function ChatComposer({
           disabled={!busy && !hasContent}
           aria-label={busy ? "Stop generating" : "Send message"}
           className={cn(
-            "inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
+            "tap-target inline-flex size-11 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:scale-90",
+            busy
+              ? "bg-foreground text-background hover:bg-foreground/90"
+              : "bg-primary text-primary-foreground hover:bg-primary/90",
             !busy && !hasContent && "opacity-40",
           )}
         >
           {busy ? (
-            <Square className="size-4" aria-hidden="true" />
+            <Square className="size-3.5 fill-current" aria-hidden="true" />
           ) : (
             <ArrowUp className="size-5" aria-hidden="true" />
           )}
