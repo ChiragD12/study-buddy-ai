@@ -94,7 +94,7 @@ export function MessageBubble({
       ) : (
         <div className="whitespace-pre-wrap text-[0.97rem] leading-relaxed text-foreground">
           {isThinking ? (
-            <ThinkingIndicator label={activity} />
+            <ThinkingIndicator label={activity ?? null} />
           ) : (
             // This span only mounts once — the moment content first arrives —
             // and stays mounted as `message.content` keeps updating, so the

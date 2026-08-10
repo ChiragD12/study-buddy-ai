@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import { buildAssistantContext, systemPrompt } from "@/ai/context/assistantContext";
 import { resolveProvider } from "@/ai/providers";
@@ -169,12 +176,23 @@ export function useAssistantChat() {
         setError(new AINotConfiguredError().message);
         return;
       }
-      const result = await runAssistantTools(provider, pendingAction.history, true, (names) => {
-        setActivity(activityFor(names));
-      }, {
-        signal: controller.signal,
-        onTextDelta: createTextDeltaHandler(assistantMessage.id, setMessages, setActivity, contentRef),
-      });
+      const result = await runAssistantTools(
+        provider,
+        pendingAction.history,
+        true,
+        (names) => {
+          setActivity(activityFor(names));
+        },
+        {
+          signal: controller.signal,
+          onTextDelta: createTextDeltaHandler(
+            assistantMessage.id,
+            setMessages,
+            setActivity,
+            contentRef,
+          ),
+        },
+      );
       await completeMessage(
         assistantMessage.id,
         contentRef.current || result.text || "The requested action was completed.",
@@ -293,7 +311,12 @@ export function useAssistantChat() {
           (names) => setActivity(activityFor(names)),
           {
             signal: controller.signal,
-            onTextDelta: createTextDeltaHandler(assistantMessage.id, setMessages, setActivity, contentRef),
+            onTextDelta: createTextDeltaHandler(
+              assistantMessage.id,
+              setMessages,
+              setActivity,
+              contentRef,
+            ),
           },
         );
         if (result.pending) {
